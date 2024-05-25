@@ -1,26 +1,51 @@
 from dataclasses import dataclass, field
 from typing import List
 import io
-import sys
 import logging
+import struct
+from tabulate import tabulate
+
 
 EXIF_TAGS = {
-    b'\x01\x0e': "ImageDescription",
-    b'\x01\x0f': "Make",
-    b'\x01\x10': "Model",
-    b'\x01\x12': "Orientation",
-    b'\x01\x1a': "XResolution",
-    b'\x01\x1b': "YResolution",
-    b'\x01\x28': "ResolutionUnit",
-    b'\x01\x31': "Software",
-    b'\x01\x32': "DateTime",
-    b'\x01\x3e': "WhitePoint",
-    b'\x01\x3f': "PrimaryChromaticities",
-    b'\x02\x11': "YCbCrCoefficients",
-    b'\x02\x13': "YCbCrPositioning",
-    b'\x02\x14': "ReferenceBlackWhite",
-    b'\x82\x98': "Copyright",
-    b'\x87\x69': "ExifOffset"
+    270: ['ImageDescription', 'string'],
+    271: ['Make', 'string'],
+    272: ['Model', 'string'],
+    274: ['Orientation', 'digit'],
+    282: ['XResolution', 'rational'],
+    283: ['YResolution', 'rational'],
+    296: ['ResolutionUnit', 'digit'],
+    305: ['Software', 'string'],
+    306: ['DateTime', 'string'],
+    318: ['WhitePoint', 'rational'],
+    319: ['PrimaryChromaticities', 'rational'],
+    529: ['YCbCrCoefficients', 'rational'],
+    531: ['YCbCrPositioning', 'digit'],
+    532: ['ReferenceBlackWhite', 'rational'],
+    33432: ['Copyright', 'string'],
+    34665: ['ExifOffset', 'digit'],      
+    # SUB TAGS
+    33434: ['ExposureTime', 'rational'],
+    33437: ['FNumber', 'rational'],
+    34850: ['ExposureProgram', 'digit'],
+    34855: ['ISOSpeedRatings', 'digit'],
+    36864: ['ExifVersion', 'string'],
+    36867: ['DateTimeOriginal', 'string'],
+    36868: ['DateTimeDigitized', 'string'],
+    37121: ['ComponentsConfiguration', 'string'],
+    37122: ['CompressedBitsPerPixel', 'rational'],
+    37377: ['ShutterSpeedValue', 'rational'],
+    37378: ['ApertureValue', 'rational'],
+    37379: ['BrightnessValue', 'rational'],
+    37380: ['ExposureBiasValue', 'rational'],
+    37381: ['MaxApertureValue', 'rational'],
+    37382: ['SubjectDistance', 'rational'],
+    37383: ['MeteringMode', 'digit'],
+    37384: ['LightSource', 'digit'],
+    37385: ['Flash', 'digit'],
+    37386: ['FocalLength', 'rational'],
+    37510: ['UserComment', 'string'],
+    40960: ['FlashPixVersion', 'string'],
+    40961: ['ColorSpace', 'digit']         # 0xaa001
 }
 
 data_format_bytes = {
@@ -40,8 +65,15 @@ data_format_bytes = {
 
 
 
+
+
+
 @dataclass
 class Chunk:
+    '''
+    Klasa bazowa dla kazdego chunka w obrazie PNG
+    '''
+
     Lenght: bytes
     Type: bytes
     Data: bytes
@@ -56,11 +88,42 @@ class Chunk:
 
     def ReturnData(self):
         return bytes(self.Lenght + self.Type + self.Data + self.CRC)
+    
+
+    @staticmethod
+    def decode_bytes(bytes_data):
+        try:
+            data = bytes_data.decode()
+        except:
+            data = int.from_bytes(bytes_data)
+        return data
+    
+class IHDRChunk(Chunk):
+    def __init__(self, binary_file_data):
+        super().__init__(binary_file_data)
+        self.width = int.from_bytes(self.Data[0:4])
+        self.height = int.from_bytes(self.Data[4:8])
+        self.depth = int.from_bytes(self.Data[8:9])
+        self.color = int.from_bytes(self.Data[9:10])
+        self.compression = int.from_bytes(self.Data[10:11])
+        self.filtration = int.from_bytes(self.Data[11:12])
+        self.interlace = int.from_bytes(self.Data[12:13])
+
+
+
+class IEND(Chunk):
+    pass
+
+class IDAT(Chunk):
+    pass
 
 
 @dataclass
 class CriticalChunks:
-    IHDR: Chunk
+    '''
+    Klasa przechowujaca dane o chunkach krytycznych
+    '''
+    IHDR: IHDRChunk
     IEND: Chunk
     IDAT: List[Chunk] = field(default_factory=list)
 
@@ -77,7 +140,8 @@ class CriticalChunks:
         compression = int.from_bytes(self.IHDR.Data[10:11])
         filtration = int.from_bytes(self.IHDR.Data[11:12])
         interlace = int.from_bytes(self.IHDR.Data[12:13])
-        print(f"Width x Height: {width} x {height}\nColor depth: {depth} bits; Color type: {color}; Compression: {compression}; Filtration: {filtration}; Interlace method: {interlace}")
+        print("HEADER")
+        print(f"Width x Height: {width} x {height}\nColor depth: {depth} bits; Color type: {color}; Compression: {compression}; Filtration: {filtration}; Interlace method: {interlace}\n")
 
     def returnChunkData(self) -> bytes:
         IHDR_data = self.IHDR.ReturnData()
@@ -90,6 +154,10 @@ class CriticalChunks:
 
 @dataclass
 class AncillaryChunks:
+    '''
+    Klasa przechowujaca dane o chunkach dodatkowych
+    '''
+
     ChunkList: List[Chunk] = field(default_factory=list)
 
     def returnChunkData(self) -> bytes:
@@ -103,31 +171,108 @@ class AncillaryChunks:
         for chunk in self.ChunkList:
             print(chunk.Type)
 
-    def readEXIF(self):
+
+    @staticmethod
+    def readCHRM(chunk_data):
+        stream = io.BytesIO(chunk_data)
+        white_point_x = int.from_bytes(stream.read(4)) / 100000.0
+        white_point_y = int.from_bytes(stream.read(4)) / 100000.0
+        red_x = int.from_bytes(stream.read(4)) / 100000.0
+        red_y = int.from_bytes(stream.read(4)) / 100000.0
+        green_x = int.from_bytes(stream.read(4)) / 100000.0
+        green_y = int.from_bytes(stream.read(4)) / 100000.0
+        blue_x = int.from_bytes(stream.read(4)) / 100000.0
+        blue_y = int.from_bytes(stream.read(4)) / 100000.0
+        table = tabulate([
+            ["WhitePoint",white_point_x,white_point_y],
+            ["Red",red_x,red_y],
+            ["Green",green_x,green_y],
+            ["Blue",blue_x,blue_y]],headers=["Type","XValue","YValue"])
+        print(f"cHRM Chunk Data: \n{table}\n")
+        # print("CHRM")
+        # print(f"White Point: {white_point_x}, {white_point_y}\nRed: {red_x}, {red_y}| Green: {green_x} | {green_y}| Blue: {blue_x} | {blue_y}\n")
+
+    @staticmethod
+    def readPHYS(chunk_data):
+        unit_dict = {0:"not specified", 1:"meters"}
+        stream = io.BytesIO(chunk_data)
+        pixels_X_axis = int.from_bytes(stream.read(4))
+        pixels_Y_axis = int.from_bytes(stream.read(4))
+        unit_specifier = int.from_bytes(stream.read(1))
+        # table = tabulate([pixels_X_axis,pixels_Y_axis,unit_dict[unit_specifier]],headers=[])
+        print("PHYS")
+        print(f"PIXELS X: {pixels_X_axis} | PIXELS Y: {pixels_Y_axis} | UNIT: {unit_dict[unit_specifier]}\n")
+
+    @staticmethod
+    def readEXIF(chunk_data):
+        def read_ifd(stream: io.BytesIO, offset, endian):
+            stream.seek(offset)
+            num_entries = struct.unpack(endian + 'H', stream.read(2))[0]  # Read number of entries (2 bytes)
+            entries = dict()
+            for _ in range(num_entries):
+                entry = stream.read(8)  # Each entry is 12 bytes
+                tag, data_format, count = struct.unpack(endian + 'HHL', entry)
+                number_of_bytes = data_format_bytes.get(data_format) * count
+                if number_of_bytes > 4:
+                    offset_value = int.from_bytes(stream.read(4))
+                    position = stream.tell()
+                    stream.seek(offset_value)
+                    data_stream = stream.read(number_of_bytes)
+                    stream.seek(position)
+                else:
+                    data_stream = stream.read(number_of_bytes)
+                    x = stream.read(4-number_of_bytes)
+                try:
+                    if EXIF_TAGS[tag][1] == 'string':
+                        data = data_stream.rstrip(b'\x00').decode()
+                    elif EXIF_TAGS[tag][1] == 'rational':
+                        nominator,denominator = struct.unpack(endian + "LL", data_stream)
+                        data = nominator / denominator
+                    else:
+                        data = int.from_bytes(data_stream)
+                    entries[EXIF_TAGS[tag][0]] = data
+                except KeyError as e:
+                    pass
+            next_ifd_offset = struct.unpack(endian + 'L', stream.read(4))[0]  # Read offset to next IFD (4 bytes)
+            return entries, next_ifd_offset
+
+
+        stream = io.BytesIO(chunk_data)
+        byte_align = stream.read(2)
+        if byte_align == b'MM':
+            endian = '>'
+        else:
+            endian = '<'
+        _tag_mark = stream.read(2)
+        First_IFD_Offset = int.from_bytes(stream.read(4))
+        entries, next_ifd_offset = read_ifd(stream,First_IFD_Offset,endian)
+        print(entries)
+        if next_ifd_offset != 0:
+            next_entries, next_ifd_offset = read_ifd(stream,next_ifd_offset,endian)
+        try:
+            sub_entries, sub_next_ifd_offset = read_ifd(stream,entries['ExifOffset'],endian)
+            print(sub_entries)
+        except Exception as e:
+            logging.error(f"Error during loading chunk {e}")
         
-        type = b'eXIf'
+        
+
+    
+    
+    def read3Chunks(self):
+        chunk1 = b'eXIf'
+        chunk2 = b'cHRM'
+        chunk3 = b'pHYs'
         for chunk in self.ChunkList:
-            if type == chunk.Type:
-                stream = io.BytesIO(chunk.Data)
-                byte_align = stream.read(2)
-                print(byte_align)
-                tag_mark = stream.read(2)
-                First_IFD_Offset = int.from_bytes(stream.read(4))
-                stream.seek(First_IFD_Offset)
-                while True:
-                    number_of_dir = stream.read(2)
-                    for ifd_dir in range(int.from_bytes(number_of_dir)):
-                        tag_number = stream.read(2)
-                        data_format = stream.read(2)
-                        components_number = stream.read(4)
-                        data = stream.read(4)
-                        print(tag_number.hex())
-                        print(EXIF_TAGS[tag_number])
-                        print(int.from_bytes(components_number))
-                        print(int.from_bytes(data_format))
-                    next_offset = stream.read(4)
-                    if next_offset == b'\x00\x00\x00\x00':
-                        break
+            if chunk.Type == chunk1:
+                self.readEXIF(chunk.Data)
+            elif chunk.Type == chunk2:
+                self.readCHRM(chunk.Data)
+            elif chunk.Type == chunk3:
+                self.readPHYS(chunk.Data)
+                
+
+
 
 @dataclass
 class Image:
@@ -140,6 +285,7 @@ class Image:
         AncillaryChunkList = []
         while image_binary_data:
             try:
+                chunk_bytes_parsing.get()
                 chunk = Chunk(image_binary_data)
                 first_byte = chunk.Type[0:1]
                 letter = first_byte.decode() #checking if chunk is critical (uppercase:critical | lowercase:ancillary)
@@ -164,4 +310,17 @@ class Image:
         else:
             img_binary_file.write(self.ancillaryChunks.returnChunkData())
             return img_binary_file
+        
+
+    def displayChunks(self):
+        print(f"Critical Chunks: {self.criticalChunks.IHDR.Type}, {self.criticalChunks.IDAT[0].Type}, {self.criticalChunks.IEND.Type}")
+        print(f"Ancillary Chunks: {[chunk.Type for chunk in self.ancillaryChunks.ChunkList]}")
+        
+
+
+chunk_bytes_parsing = {
+    b'IHDR':IHDRChunk,
+    b'IEND':IENDChunk,
+    b'IDAT':IDATChunk,
+}   
     
