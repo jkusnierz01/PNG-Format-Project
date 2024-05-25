@@ -25,10 +25,8 @@ def main():
             if signature == b'\x89PNG\r\n\x1a\n':
                 #odczytanie danych z PNG - stworzenie dwoch podklas na chunki krytyczne i opcjonalne
                 image = Image(image_binary)
-                image.criticalChunks.DecodeHeader()
-                image.ancillaryChunks.read3Chunks()
+                image.displayImageData()
                 createFourierPlots(grayscale_image)
-                image.displayChunks()
 
                 # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
                 with open("output.png",'wb') as out_image:

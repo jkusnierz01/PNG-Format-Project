@@ -4,6 +4,8 @@ import io
 import logging
 import struct
 from tabulate import tabulate
+import pprint
+
 
 
 EXIF_TAGS = {
@@ -79,28 +81,22 @@ class Chunk:
     Data: bytes
     CRC: bytes
 
-    def __init__(self,binary_file_data):
-        self.Lenght = binary_file_data.read(4)
-        decimalLenght = int.from_bytes(self.Lenght)
-        self.Type = binary_file_data.read(4)
-        self.Data = binary_file_data.read(decimalLenght)
-        self.CRC = binary_file_data.read(4)
+    def __init__(self,lenght,type,data,crc):
+        self.Lenght = lenght
+        self.Type = type
+        self.Data = data
+        self.CRC = crc
+
+    def __str__(self) -> str:
+        return self.Type.decode()
 
     def ReturnData(self):
         return bytes(self.Lenght + self.Type + self.Data + self.CRC)
     
-
-    @staticmethod
-    def decode_bytes(bytes_data):
-        try:
-            data = bytes_data.decode()
-        except:
-            data = int.from_bytes(bytes_data)
-        return data
     
 class IHDRChunk(Chunk):
-    def __init__(self, binary_file_data):
-        super().__init__(binary_file_data)
+    def __init__(self, lenght,type,data,crc):
+        super().__init__(lenght,type,data,crc)
         self.width = int.from_bytes(self.Data[0:4])
         self.height = int.from_bytes(self.Data[4:8])
         self.depth = int.from_bytes(self.Data[8:9])
@@ -110,109 +106,120 @@ class IHDRChunk(Chunk):
         self.interlace = int.from_bytes(self.Data[12:13])
 
 
+    def DecodeData(self):
+        table = tabulate(
+            [[self.width,self.height,self.depth,self.color,self.compression,self.filtration,self.interlace]],
+            headers=['Width','Height','Bit Depth','Color Type', 'Compression Method', 'Filter Method', 'Interlance Method'])
+        print(f'\nDecoding Header:\n{table}\n')
 
-class IEND(Chunk):
-    pass
 
-class IDAT(Chunk):
-    pass
+    def __str__(self) -> str:
+        return super().__str__()
 
 
-@dataclass
-class CriticalChunks:
-    '''
-    Klasa przechowujaca dane o chunkach krytycznych
-    '''
-    IHDR: IHDRChunk
-    IEND: Chunk
-    IDAT: List[Chunk] = field(default_factory=list)
+class IENDChunk(Chunk):
+    def __init__(self, lenght, type, data, crc):
+        super().__init__(lenght, type, data, crc)
 
-    def __init__(self,chunk_list_data):
-        self.IHDR = chunk_list_data.pop(0)
-        self.IEND = chunk_list_data.pop(-1)
-        self.IDAT = chunk_list_data
+    def __str__(self) -> str:
+        return super().__str__()
 
-    def DecodeHeader(self):
-        width = int.from_bytes(self.IHDR.Data[0:4])
-        height = int.from_bytes(self.IHDR.Data[4:8])
-        depth = int.from_bytes(self.IHDR.Data[8:9])
-        color = int.from_bytes(self.IHDR.Data[9:10])
-        compression = int.from_bytes(self.IHDR.Data[10:11])
-        filtration = int.from_bytes(self.IHDR.Data[11:12])
-        interlace = int.from_bytes(self.IHDR.Data[12:13])
-        print("HEADER")
-        print(f"Width x Height: {width} x {height}\nColor depth: {depth} bits; Color type: {color}; Compression: {compression}; Filtration: {filtration}; Interlace method: {interlace}\n")
+   
+class PLTEChunk(Chunk):
+    def __init__(self, lenght, type, data, crc):
+        super().__init__(lenght, type, data, crc)
+        lenght_digit = int.from_bytes(lenght)
+        pallete_list = []
+        for i in range(0,lenght_digit, 3):
+            color = (data[i:i+3])
+            pallete_list.append(color)
+        self.palette = pallete_list
 
-    def returnChunkData(self) -> bytes:
-        IHDR_data = self.IHDR.ReturnData()
-        IEND_data = self.IEND.ReturnData()
-        IDAT_data = bytearray()
-        for chunk in self.IDAT:
-            IDAT_data.extend(chunk.ReturnData())
-        return bytes(IHDR_data + IDAT_data + IEND_data)
-        
 
-@dataclass
-class AncillaryChunks:
-    '''
-    Klasa przechowujaca dane o chunkach dodatkowych
-    '''
+    def __str__(self) -> str:
+        return super().__str__()
 
-    ChunkList: List[Chunk] = field(default_factory=list)
 
-    def returnChunkData(self) -> bytes:
-        chunkData = bytearray()
-        for chunk in self.ChunkList:
-            chunkData.extend(chunk.ReturnData())
-        return bytes(chunkData)
+class IDATChunk(Chunk):
+    def __init__(self, lenght, type, data, crc):
+        super().__init__(lenght, type, data, crc)
+    
+    def __str__(self) -> str:
+        return super().__str__()
     
 
-    def showChunks(self):
-        for chunk in self.ChunkList:
-            print(chunk.Type)
+class gAMAChunk(Chunk):
+    def __init__(self, lenght, type, data, crc):
+        super().__init__(lenght, type, data, crc)
+        self.gamma = int.from_bytes(data,'big') / 100000
 
+    # def __str__(self) -> str:
+    #     return self.gamma
+    def __str__(self) -> str:
+        return super().__str__()
+    
+    def presentData(self):
+        print(f"Gama Data: {self.gamma}")
+
+
+class eXIFChunk(Chunk):
+    def __init__(self, lenght, type, data, crc):
+        super().__init__(lenght, type, data, crc)
+
+    def readEXIF(self):
+        stream = io.BytesIO(self.Data)
+
+        # sprawdzenie ukladu bajtow: MM - big endian | II - small endian
+        byte_align = stream.read(2)
+        if byte_align == b'MM':
+            endian = '>'
+        else:
+            endian = '<'
+        _tag_mark = stream.read(2)
+
+        # offset do 1 File Directory
+        First_IFD_Offset = int.from_bytes(stream.read(4))
+
+        # odczytujemy 1 IFD
+        try:
+            entries, next_ifd_offset = eXIFChunk.read_ifd(stream,First_IFD_Offset,endian)
+
+            # jezeli jest offset do kolejnego to odczytujemy
+            if next_ifd_offset != 0:
+                next_entries, next_ifd_offset = eXIFChunk.read_ifd(stream,next_ifd_offset,endian)     
+        except Exception as e:
+            logging.error(f"Exception during IFD Read: {e}")
+        try:
+            # odczytujemy sub_exif - dane na temat czasu naswietlania/ekspozycji itd.
+            sub_entries, sub_next_ifd_offset = eXIFChunk.read_ifd(stream,entries['ExifOffset'],endian)
+        except Exception as e:
+            logging.error(f"No SUB_EXIF Chunk")
+
+        return entries,sub_entries
 
     @staticmethod
-    def readCHRM(chunk_data):
-        stream = io.BytesIO(chunk_data)
-        white_point_x = int.from_bytes(stream.read(4)) / 100000.0
-        white_point_y = int.from_bytes(stream.read(4)) / 100000.0
-        red_x = int.from_bytes(stream.read(4)) / 100000.0
-        red_y = int.from_bytes(stream.read(4)) / 100000.0
-        green_x = int.from_bytes(stream.read(4)) / 100000.0
-        green_y = int.from_bytes(stream.read(4)) / 100000.0
-        blue_x = int.from_bytes(stream.read(4)) / 100000.0
-        blue_y = int.from_bytes(stream.read(4)) / 100000.0
-        table = tabulate([
-            ["WhitePoint",white_point_x,white_point_y],
-            ["Red",red_x,red_y],
-            ["Green",green_x,green_y],
-            ["Blue",blue_x,blue_y]],headers=["Type","XValue","YValue"])
-        print(f"cHRM Chunk Data: \n{table}\n")
-        # print("CHRM")
-        # print(f"White Point: {white_point_x}, {white_point_y}\nRed: {red_x}, {red_y}| Green: {green_x} | {green_y}| Blue: {blue_x} | {blue_y}\n")
-
-    @staticmethod
-    def readPHYS(chunk_data):
-        unit_dict = {0:"not specified", 1:"meters"}
-        stream = io.BytesIO(chunk_data)
-        pixels_X_axis = int.from_bytes(stream.read(4))
-        pixels_Y_axis = int.from_bytes(stream.read(4))
-        unit_specifier = int.from_bytes(stream.read(1))
-        # table = tabulate([pixels_X_axis,pixels_Y_axis,unit_dict[unit_specifier]],headers=[])
-        print("PHYS")
-        print(f"PIXELS X: {pixels_X_axis} | PIXELS Y: {pixels_Y_axis} | UNIT: {unit_dict[unit_specifier]}\n")
-
-    @staticmethod
-    def readEXIF(chunk_data):
-        def read_ifd(stream: io.BytesIO, offset, endian):
+    def read_ifd(stream: io.BytesIO, offset, endian):
             stream.seek(offset)
-            num_entries = struct.unpack(endian + 'H', stream.read(2))[0]  # Read number of entries (2 bytes)
+
+            # ilosc "katalogow" z danymi w naszym IFD
+            num_entries = struct.unpack(endian + 'H', stream.read(2))[0]  
             entries = dict()
+
+            # kazdy katalog ma 12 bajtow danych
             for _ in range(num_entries):
-                entry = stream.read(8)  # Each entry is 12 bytes
+                '''
+                struktura:
+                    - Tag (informacja o danej - co oznacza) - 2 bajty
+                    - Data Format (informacja o typie/formacie danej) - 2 bajty
+                    - Components Number (Ilosc komponentow) - 4 bajty -> (Data Format * Components Number) daja ilosc bajtow jakie zajmuja dane w pamieci:
+                        * jezeli powyzej 4 bajtow to *Values* zawiera offset do obszaru pamieci z faktycznymi danymi
+                        * jezeli 4 bajty lub mniej *Values* ma faktyczne dane
+                    - Values (obszar gdzie zawieraja sie fizyczne dane pod powyzszym warunkiem)
+                '''
+                entry = stream.read(8)  
                 tag, data_format, count = struct.unpack(endian + 'HHL', entry)
                 number_of_bytes = data_format_bytes.get(data_format) * count
+
                 if number_of_bytes > 4:
                     offset_value = int.from_bytes(stream.read(4))
                     position = stream.tell()
@@ -223,6 +230,7 @@ class AncillaryChunks:
                     data_stream = stream.read(number_of_bytes)
                     x = stream.read(4-number_of_bytes)
                 try:
+                    # sprawdzamy typ taga zeby wiedziec jak go dekodowac
                     if EXIF_TAGS[tag][1] == 'string':
                         data = data_stream.rstrip(b'\x00').decode()
                     elif EXIF_TAGS[tag][1] == 'rational':
@@ -230,48 +238,115 @@ class AncillaryChunks:
                         data = nominator / denominator
                     else:
                         data = int.from_bytes(data_stream)
+
                     entries[EXIF_TAGS[tag][0]] = data
                 except KeyError as e:
                     pass
-            next_ifd_offset = struct.unpack(endian + 'L', stream.read(4))[0]  # Read offset to next IFD (4 bytes)
+
+            #offset do nastepnego IFD
+            next_ifd_offset = struct.unpack(endian + 'L', stream.read(4))[0]  
             return entries, next_ifd_offset
+    
+    def __str__(self) -> str:
+        return super().__str__()
+    
+    def presentData(self):
+        main_ifd, sub_ifd = self.readEXIF()
+        print("\nEXIF Data")
+        pprint.pprint(main_ifd)
+        pprint.pprint(sub_ifd)
 
 
-        stream = io.BytesIO(chunk_data)
-        byte_align = stream.read(2)
-        if byte_align == b'MM':
-            endian = '>'
+class cHRMChunk(Chunk):
+    def __init__(self, lenght, type, data, crc):
+        super().__init__(lenght, type, data, crc)
+        stream = io.BytesIO(data)
+        self.white_point_x = int.from_bytes(stream.read(4)) / 100000.0
+        self.white_point_y = int.from_bytes(stream.read(4)) / 100000.0
+        self.red_x = int.from_bytes(stream.read(4)) / 100000.0
+        self.red_y = int.from_bytes(stream.read(4)) / 100000.0
+        self.green_x = int.from_bytes(stream.read(4)) / 100000.0
+        self.green_y = int.from_bytes(stream.read(4)) / 100000.0
+        self.blue_x = int.from_bytes(stream.read(4)) / 100000.0
+        self.blue_y = int.from_bytes(stream.read(4)) / 100000.0
+
+        
+    def presentData(self) -> None:
+        table = tabulate([
+            ["WhitePoint",self.white_point_x,self.white_point_y],
+            ["Red",self.red_x,self.red_y],
+            ["Green",self.green_x,self.green_y],
+            ["Blue",self.blue_x,self.blue_y]],headers=["Type","XValue","YValue"])
+        print(f"cHRM Chunk Data: \n{table}\n")
+
+    def __str__(self) -> str:
+        return super().__str__()
+
+
+
+@dataclass
+class CriticalChunks:
+    '''
+    Klasa przechowujaca dane o chunkach krytycznych
+    '''
+    IHDR: IHDRChunk
+    IEND: IENDChunk
+    PLTE: PLTEChunk = None
+    IDAT: List[IDATChunk] = field(default_factory=list)
+
+    def __init__(self,chunk_list_data):
+        self.IHDR = chunk_list_data.pop(0)
+        self.IEND = chunk_list_data.pop(-1)
+        if self.IHDR.color == 3:
+            self.PLTE = chunk_list_data.pop(0)
+        self.IDAT = chunk_list_data
+
+    # function zwracająca tablice IDAT w formie bajtow
+    def returnIDATData(self) -> bytes:
+        IDAT_data = bytearray()
+        for chunk in self.IDAT:
+            IDAT_data.extend(chunk.ReturnData())
+        return bytes(IDAT_data)
+    
+
+    def __str__(self) -> str:
+        if self.PLTE is not None:
+            return (f"Critical Chunks: {str(self.IHDR), str(self.PLTE), str(self.IDAT[0]),str(self.IEND)}")
         else:
-            endian = '<'
-        _tag_mark = stream.read(2)
-        First_IFD_Offset = int.from_bytes(stream.read(4))
-        entries, next_ifd_offset = read_ifd(stream,First_IFD_Offset,endian)
-        print(entries)
-        if next_ifd_offset != 0:
-            next_entries, next_ifd_offset = read_ifd(stream,next_ifd_offset,endian)
-        try:
-            sub_entries, sub_next_ifd_offset = read_ifd(stream,entries['ExifOffset'],endian)
-            print(sub_entries)
-        except Exception as e:
-            logging.error(f"Error during loading chunk {e}")
-        
+            return (f"Critical Chunks: {str(self.IHDR), str(self.IDAT[0]),str(self.IEND)}")
         
 
-    
-    
-    def read3Chunks(self):
-        chunk1 = b'eXIf'
-        chunk2 = b'cHRM'
-        chunk3 = b'pHYs'
+@dataclass
+class AncillaryChunks:
+    '''
+    Klasa przechowujaca dane o chunkach dodatkowych
+    '''
+    ChunkList: List[Chunk] = field(default_factory=list)
+
+
+    def returnChunkData(self) -> bytes:
+        chunkData = bytearray()
         for chunk in self.ChunkList:
-            if chunk.Type == chunk1:
-                self.readEXIF(chunk.Data)
-            elif chunk.Type == chunk2:
-                self.readCHRM(chunk.Data)
-            elif chunk.Type == chunk3:
-                self.readPHYS(chunk.Data)
-                
+            chunkData.extend(chunk.ReturnData())
+        return bytes(chunkData)
+    
+    def findChunk(self,_type):
+        for chunk in self.ChunkList:
+            if chunk.Type == _type:
+                return Chunk
+        return None
+    
+    def presentChunkData(self):
+        for chunk in self.ChunkList:
+            chunk.presentData()
+    
+    def __str__(self) -> str:
+        chunk_types = tuple(map(str,self.ChunkList))
+        return(f"Ancillary Chunks: {chunk_types}")
+       
+    
 
+        
 
 
 @dataclass
@@ -285,14 +360,25 @@ class Image:
         AncillaryChunkList = []
         while image_binary_data:
             try:
-                chunk_bytes_parsing.get()
-                chunk = Chunk(image_binary_data)
-                first_byte = chunk.Type[0:1]
-                letter = first_byte.decode() #checking if chunk is critical (uppercase:critical | lowercase:ancillary)
+
+                # odczytujemy dane z chunka
+                _length = image_binary_data.read(4)
+                _type = image_binary_data.read(4)
+                _data = image_binary_data.read(int.from_bytes(_length))
+                _crc = image_binary_data.read(4)
+
+                # jezeli typu nie ma w slowniku inicjowana jest klasa bazowa
+                chunk_class = chunk_bytes_parsing.get(_type,Chunk)
+                chunk = chunk_class(_length,_type,_data,_crc)
+
+                #checking if chunk is critical (uppercase:critical | lowercase:ancillary)
+                first_byte = _type[0:1]
+                letter = first_byte.decode() 
                 if letter.isupper():
                     CriticalChunkList.append(chunk)
                 else:
-                    AncillaryChunkList.append(chunk)
+                    if chunk.Type in chunk_bytes_parsing.keys():
+                        AncillaryChunkList.append(chunk)
             except Exception as e:
                 logging.error(f"Error during loading chunk {e}")
                 continue
@@ -304,23 +390,35 @@ class Image:
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool):
         img_binary_file.write(signature)
-        img_binary_file.write(self.criticalChunks.returnChunkData())
-        if exclude_ancillary:
-            return img_binary_file
-        else:
+        img_binary_file.write(self.criticalChunks.IHDR.ReturnData())
+        if exclude_ancillary is False:
             img_binary_file.write(self.ancillaryChunks.returnChunkData())
-            return img_binary_file
+        if self.criticalChunks.PLTE is not None:
+                img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
+        img_binary_file.write(self.criticalChunks.returnIDATData())
+        img_binary_file.write(self.criticalChunks.IEND.ReturnData())
+        return img_binary_file
         
 
     def displayChunks(self):
-        print(f"Critical Chunks: {self.criticalChunks.IHDR.Type}, {self.criticalChunks.IDAT[0].Type}, {self.criticalChunks.IEND.Type}")
-        print(f"Ancillary Chunks: {[chunk.Type for chunk in self.ancillaryChunks.ChunkList]}")
+        print(str(self.criticalChunks))
+        print(str(self.ancillaryChunks))
+
+    def displayImageData(self):
+        self.criticalChunks.IHDR.DecodeData()
+        self.ancillaryChunks.presentChunkData()
+        self.displayChunks()
+
         
 
 
 chunk_bytes_parsing = {
     b'IHDR':IHDRChunk,
     b'IEND':IENDChunk,
+    b'PLTE':PLTEChunk,
     b'IDAT':IDATChunk,
+    b'cHRM':cHRMChunk,
+    b'gAMA':gAMAChunk,
+    b'eXIf':eXIFChunk,
 }   
     
