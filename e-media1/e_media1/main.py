@@ -5,20 +5,18 @@ import matplotlib.pyplot as plt
 from e_media1.chunksclasses import Image
 from e_media1.fourier import createFourierPlots
 
-parser = argparse.ArgumentParser(description="path to PNG file")
+parser = argparse.ArgumentParser(description="Process PNG File")
 parser.add_argument('path',help = 'Path to PNG file')
 parser.add_argument('-r','--removeAll',action='store_true',required=False,dest='remove_all',help="Remove all Ancillary Chunks from file")
 args = parser.parse_args()
 
 
 def main():
-
     #sprawdzenie czy istnieje plik pod podana sciezka
     if Path(args.path).is_file():
         # odczytanie i transformacja do grayscale 
         img = plt.imread(args.path)
         grayscale_image = img[:, :, :3].mean(axis=2)
-        plt.set_cmap("gray")
         with open(args.path,'r+b') as image_binary:
             # sprawdzenie sygnatury
             signature = image_binary.read(8)

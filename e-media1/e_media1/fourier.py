@@ -30,15 +30,15 @@ def createFourierPlots(grayscale_img:np.array) -> None:
     #oryginaly obraz w grayscale
     plt.subplot(131), plt.imshow(grayscale_img, cmap='gray'), plt.axis("off"),plt.title("Original Image")
     #magnitude fft
-    plt.subplot(132),plt.imshow(magnitude),plt.axis("off"),plt.title("FFT Magnitude")
+    plt.subplot(132),plt.imshow(magnitude, cmap='gray'),plt.axis("off"),plt.title("FFT Magnitude")
     #faza fft
-    plt.subplot(133),plt.imshow(phase),plt.axis("off"),plt.title("FFT Phase")
+    plt.subplot(133),plt.imshow(phase, cmap='gray'),plt.axis("off"),plt.title("FFT Phase")
 
     f2 = plt.figure(2)
     #oryginaly obraz w grayscale
     plt.subplot(121), plt.imshow(grayscale_img, cmap='gray'), plt.axis("off"),plt.title("Original Image")
     #obraz po odwrotnej transformacie fouriera
-    plt.subplot(122),plt.imshow(reversed_img),plt.axis("off"), plt.title("Inversed FFT")
+    plt.subplot(122),plt.imshow(reversed_img, cmap='gray'),plt.axis("off"), plt.title("Inversed FFT")
     # sprawdzenie rezultatów - porównanie wartości miedzy obrazem oryginalnym i po odwrotnej transformacie
     plt.figtext(x = 0.35, y=0.9,s = f"Difference between images: {np.around(diff,4)}")
     
