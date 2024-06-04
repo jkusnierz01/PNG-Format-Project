@@ -3,9 +3,17 @@ from typing import List
 import logging
 from tabulate import tabulate
 from e_media1.basechunks import *
+import zlib
+import logging
+from e_media1.filtering_methods import ReconstructingMethods
+import numpy as np
+import matplotlib.pyplot as plt
 
 
-@dataclass
+logger = logging.getLogger()
+
+
+@dataclass(init=False)
 class CriticalChunks:
     '''
     Klasa przechowujaca dane o chunkach krytycznych
@@ -23,12 +31,36 @@ class CriticalChunks:
         self.IDAT = chunk_list_data
 
     # function zwracająca tablice IDAT w formie bajtow
-    def returnIDATData(self) -> bytes:
+    def returnIDAT(self) -> bytes:
         IDAT_data = bytearray()
         for chunk in self.IDAT:
             IDAT_data.extend(chunk.ReturnData())
         return bytes(IDAT_data)
     
+
+    def retrieveAllIDATData(self) -> bytes:
+        return b''.join([chunk.Data for chunk in self.IDAT])
+    
+    def decompressData(self) -> bytes:
+        concatinatedData = self.retrieveAllIDATData()
+        return zlib.decompress(concatinatedData)
+    
+
+    def reconstructIDATData(self):
+        decompressed_data = self.decompressData()
+        Reconstructed = []
+        bytes_number = color_type_bytes.get(self.IHDR.color,None)
+        if bytes_number is None:
+            logger.error("Wrong Color Type")
+        for row in range(self.IHDR.height):
+            filter_method = decompressed_data[row*self.IHDR.width * bytes_number]
+            method = filtering_methods.get(filter_method)
+            for col in range(self.IHDR.width * bytes_number):
+                x = decompressed_data[row*self.IHDR.width * bytes_number + col + 1]
+                reconstructed = method(x, row, col, Reconstructed, self.IHDR.width, bytes_number)
+                Reconstructed.append(reconstructed)
+        return Reconstructed
+
 
     def __str__(self) -> str:
         if self.PLTE is not None:
@@ -70,18 +102,17 @@ class AncillaryChunks:
         
 
 
-@dataclass
+@dataclass(init=False)
 class Image:
     criticalChunks: CriticalChunks
     ancillaryChunks: AncillaryChunks
-
+    rawIDATData: List[bytes]
 
     def __init__(self, image_binary_data):
         CriticalChunkList = []
         AncillaryChunkList = []
         while image_binary_data:
             try:
-
                 # odczytujemy dane z chunka
                 _length = image_binary_data.read(4)
                 _type = image_binary_data.read(4)
@@ -107,6 +138,19 @@ class Image:
                 break
         self.criticalChunks = CriticalChunks(CriticalChunkList)
         self.ancillaryChunks = AncillaryChunks(AncillaryChunkList)
+        self.rawIDATData = self.criticalChunks.reconstructIDATData()
+        x = color_type_bytes.get(self.criticalChunks.IHDR.color)
+        out_arr = []
+        for iter in range(int(len(self.rawIDATData)/x)):
+            tab = self.rawIDATData[iter * x:iter*x + x]
+            out_arr.append(tab)
+        print(out_arr)
+        y = np.array(out_arr)
+        print(y)
+
+
+
+
         
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool):
@@ -116,7 +160,7 @@ class Image:
             img_binary_file.write(self.ancillaryChunks.returnChunkData())
         if self.criticalChunks.PLTE is not None:
                 img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
-        img_binary_file.write(self.criticalChunks.returnIDATData())
+        img_binary_file.write(self.criticalChunks.returnIDAT())
         img_binary_file.write(self.criticalChunks.IEND.ReturnData())
         return img_binary_file
         
@@ -132,6 +176,8 @@ class Image:
         if self.criticalChunks.PLTE is not None:
             self.criticalChunks.PLTE.show_palette()
 
+
+
         
 
 
@@ -143,5 +189,22 @@ chunk_bytes_parsing = {
     b'cHRM':cHRMChunk,
     b'gAMA':gAMAChunk,
     b'eXIf':eXIFChunk,
-}   
+}
+
+
+color_type_bytes = {
+    0:1,
+    2:3,
+    3:3,
+    4:2,
+    6:4
+}
+
+filtering_methods = {
+    0:ReconstructingMethods.none,
+    1:ReconstructingMethods.Sub,
+    2:ReconstructingMethods.Up,
+    3:ReconstructingMethods.Average,
+    4:ReconstructingMethods.Paeth
+}
     

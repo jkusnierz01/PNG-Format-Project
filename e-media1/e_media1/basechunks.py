@@ -153,6 +153,7 @@ class IDATChunk(Chunk):
     def __str__(self) -> str:
         return super().__str__()
     
+    
 
 class gAMAChunk(Chunk):
     def __init__(self, lenght, type, data, crc):
