@@ -31,7 +31,7 @@ def main():
             else:
                 print("Wrong file format!")
     else:
-        print("Invalid path to file!")
+        print(f"Invalid path to file! - {Path(args.path)}")
 
 
 if __name__ == '__main__':

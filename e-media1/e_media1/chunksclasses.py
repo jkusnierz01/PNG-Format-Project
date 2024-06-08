@@ -7,6 +7,7 @@ import zlib
 import logging
 from e_media1.filtering_methods import ReconstructingMethods
 import numpy as np
+import sys
 import matplotlib.pyplot as plt
 
 
@@ -48,17 +49,23 @@ class CriticalChunks:
 
     def reconstructIDATData(self):
         decompressed_data = self.decompressData()
+        bytes_per_pixel = color_type_bytes.get(self.IHDR.color,None)
+        expected_IDAT_data_length = self.IHDR.height * (1 + self.IHDR.width * bytes_per_pixel)
+        if(len(decompressed_data) != expected_IDAT_data_length):
+            logger.error("Decompressed Data Lenght not correct")
         Reconstructed = []
-        bytes_number = color_type_bytes.get(self.IHDR.color,None)
-        if bytes_number is None:
+        i = 0
+        if bytes_per_pixel is None:
             logger.error("Wrong Color Type")
         for row in range(self.IHDR.height):
-            filter_method = decompressed_data[row*self.IHDR.width * bytes_number]
+            filter_method = decompressed_data[i]
+            i +=1
             method = filtering_methods.get(filter_method)
-            for col in range(self.IHDR.width * bytes_number):
-                x = decompressed_data[row*self.IHDR.width * bytes_number + col + 1]
-                reconstructed = method(x, row, col, Reconstructed, self.IHDR.width, bytes_number)
-                Reconstructed.append(reconstructed)
+            for col in range(self.IHDR.width * bytes_per_pixel):
+                x = decompressed_data[i]
+                i+=1
+                reconstructed = method(x, row, col, Reconstructed, self.IHDR.width, bytes_per_pixel)
+                Reconstructed.append(reconstructed & 0xff)
         return Reconstructed
 
 
@@ -99,8 +106,6 @@ class AncillaryChunks:
        
     
 
-        
-
 
 @dataclass(init=False)
 class Image:
@@ -122,7 +127,6 @@ class Image:
                 # jezeli typu nie ma w slowniku inicjowana jest klasa bazowa
                 chunk_class = chunk_bytes_parsing.get(_type,Chunk)
                 chunk = chunk_class(_length,_type,_data,_crc)
-
                 #checking if chunk is critical (uppercase:critical | lowercase:ancillary)
                 first_byte = _type[0:1]
                 letter = first_byte.decode() 
@@ -139,19 +143,16 @@ class Image:
         self.criticalChunks = CriticalChunks(CriticalChunkList)
         self.ancillaryChunks = AncillaryChunks(AncillaryChunkList)
         self.rawIDATData = self.criticalChunks.reconstructIDATData()
-        x = color_type_bytes.get(self.criticalChunks.IHDR.color)
-        out_arr = []
-        for iter in range(int(len(self.rawIDATData)/x)):
-            tab = self.rawIDATData[iter * x:iter*x + x]
-            out_arr.append(tab)
-        print(out_arr)
-        y = np.array(out_arr)
-        print(y)
-
-
-
-
-        
+        # x = color_type_bytes.get(self.criticalChunks.IHDR.color)
+        # out_arr = []
+        # for iter in range(int(len(self.rawIDATData)/x)):
+        #     tab = self.rawIDATData[iter * x:iter*x + x]
+        #     out_arr.append(tab)
+        # y = np.array(out_arr)
+        # plt.figure(3)
+        # plt.imshow(y.reshape(self.criticalChunks.IHDR.height,self.criticalChunks.IHDR.width,x))
+        # plt.axis('off')
+        # plt.show()
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool):
         img_binary_file.write(signature)
@@ -195,7 +196,7 @@ chunk_bytes_parsing = {
 color_type_bytes = {
     0:1,
     2:3,
-    3:3,
+    3:1,
     4:2,
     6:4
 }
