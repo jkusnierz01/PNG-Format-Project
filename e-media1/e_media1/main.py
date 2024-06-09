@@ -33,8 +33,7 @@ def main():
                 image.displayImageData()
                 createFourierPlots(grayscale_image)
                 if(args.ECBencrypt):
-                    ecb = ECB()
-                    ecb.ECBencryption(image.rawIDATData)
+                    image.encryptImage()
                 # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
                 with open("output.png",'wb') as out_image:
                     out_image = image.restoreImage(out_image, signature, args.remove_all)

@@ -158,8 +158,9 @@ class Image:
         # plt.show()
 
     def encryptImage(self):
-        ecb = ECB
-        ecb.ECBencryption(self.rawIDATData)
+        ecb = ECB()
+        ecb.encrypt(self.rawIDATData)
+        ecb.decrypt()
 
 
 
