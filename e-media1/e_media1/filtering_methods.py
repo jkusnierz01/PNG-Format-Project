@@ -6,7 +6,7 @@ from io import BytesIO
 import logging
 import math
 
-logger = logging.getLogger()
+logger = logging.getLogger("loger")
 
 class ReconstructingMethods:
 

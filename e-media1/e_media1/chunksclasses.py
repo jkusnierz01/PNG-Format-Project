@@ -9,9 +9,10 @@ from e_media1.filtering_methods import ReconstructingMethods
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
+from e_media1.encrypt import ECB
 
 
-logger = logging.getLogger()
+logger = logging.getLogger("loger")
 
 
 @dataclass(init=False)
@@ -47,25 +48,28 @@ class CriticalChunks:
         return zlib.decompress(concatinatedData)
     
 
-    def reconstructIDATData(self):
+    def reconstructIDATData(self) -> np.array:
+        height = self.IHDR.height
+        width = self.IHDR.width
         decompressed_data = self.decompressData()
         bytes_per_pixel = color_type_bytes.get(self.IHDR.color,None)
-        expected_IDAT_data_length = self.IHDR.height * (1 + self.IHDR.width * bytes_per_pixel)
+        expected_IDAT_data_length = height * (1 + width * bytes_per_pixel)
         if(len(decompressed_data) != expected_IDAT_data_length):
             logger.error("Decompressed Data Lenght not correct")
         Reconstructed = []
         i = 0
         if bytes_per_pixel is None:
             logger.error("Wrong Color Type")
-        for row in range(self.IHDR.height):
+        for row in range(height):
             filter_method = decompressed_data[i]
             i +=1
             method = filtering_methods.get(filter_method)
-            for col in range(self.IHDR.width * bytes_per_pixel):
+            for col in range(width * bytes_per_pixel):
                 x = decompressed_data[i]
                 i+=1
-                reconstructed = method(x, row, col, Reconstructed, self.IHDR.width, bytes_per_pixel)
+                reconstructed = method(x, row, col, Reconstructed, width, bytes_per_pixel)
                 Reconstructed.append(reconstructed & 0xff)
+        Reconstructed = np.array(Reconstructed).reshape(height,width,bytes_per_pixel)
         return Reconstructed
 
 
@@ -111,7 +115,7 @@ class AncillaryChunks:
 class Image:
     criticalChunks: CriticalChunks
     ancillaryChunks: AncillaryChunks
-    rawIDATData: List[bytes]
+    rawIDATData: List[int]
 
     def __init__(self, image_binary_data):
         CriticalChunkList = []
@@ -143,7 +147,6 @@ class Image:
         self.criticalChunks = CriticalChunks(CriticalChunkList)
         self.ancillaryChunks = AncillaryChunks(AncillaryChunkList)
         self.rawIDATData = self.criticalChunks.reconstructIDATData()
-        # x = color_type_bytes.get(self.criticalChunks.IHDR.color)
         # out_arr = []
         # for iter in range(int(len(self.rawIDATData)/x)):
         #     tab = self.rawIDATData[iter * x:iter*x + x]
@@ -153,6 +156,12 @@ class Image:
         # plt.imshow(y.reshape(self.criticalChunks.IHDR.height,self.criticalChunks.IHDR.width,x))
         # plt.axis('off')
         # plt.show()
+
+    def encryptImage(self):
+        ecb = ECB
+        ecb.ECBencryption(self.rawIDATData)
+
+
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool):
         img_binary_file.write(signature)
@@ -171,6 +180,7 @@ class Image:
         print(str(self.ancillaryChunks))
 
     def displayImageData(self):
+        logger.info("Displaying Image Data")
         self.criticalChunks.IHDR.DecodeData()
         self.ancillaryChunks.presentChunkData()
         self.displayChunks()

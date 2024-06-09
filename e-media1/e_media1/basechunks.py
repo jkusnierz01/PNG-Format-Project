@@ -6,7 +6,7 @@ from tabulate import tabulate
 import pprint
 import matplotlib.pyplot as plt
 
-
+logger = logging.getLogger("loger")
 
 EXIF_TAGS = {
     270: ['ImageDescription', 'string'],

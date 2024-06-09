@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from e_media1.chunksclasses import Image
+import logging
+
+logger = logging.getLogger("loger")
 
 def performFourierTransform(img:np.array) -> np.fft.fftshift:
     ft = np.fft.fftshift(img)
@@ -20,6 +23,7 @@ def CompareTransformResults(base_img: np.array,img_after_transformations: np.arr
 
 
 def createFourierPlots(grayscale_img:np.array) -> None:
+    logger.info("Creating Fourier Plots")
     ft = performFourierTransform(grayscale_img)
     reversed_img = performInverseFourierTransform(ft)
     diff = CompareTransformResults(grayscale_img,reversed_img)
