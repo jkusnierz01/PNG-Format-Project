@@ -9,7 +9,8 @@ from e_media1.filtering_methods import ReconstructingMethods
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
-from e_media1.encrypt import ECB
+from e_media1.encrypt import ECB,CBC
+import png
 
 
 logger = logging.getLogger("loger")
@@ -71,6 +72,26 @@ class CriticalChunks:
                 Reconstructed.append(reconstructed & 0xff)
         Reconstructed = np.array(Reconstructed).reshape(height,width,bytes_per_pixel)
         return Reconstructed
+    
+
+    '''
+    Funkcja majaca na celu przypisanie do istniejacego obrazu danych zaszyfrowanych
+    '''
+    def create_crypted_IDAT(self, encrypted_data):
+        pass
+        # encrypted_data = encrypted_data.reshape(-1)
+        # encrypted_data = encrypted_data.tobytes()
+        # encrypted_data_compressed = zlib.compress(encrypted_data)
+        # i = 0
+        # for chunk in self.IDAT:
+        #     length = int.from_bytes(chunk.Lenght, byteorder='big')
+        #     data = encrypted_data_compressed[i:i + length]
+        #     crc = zlib.crc32(chunk.Type + data) & 0xffffffff
+        #     chunk.CRC = crc.to_bytes(4, 'big')
+        #     chunk.Data = data
+        #     chunk.Lenght = len(data).to_bytes(4, 'big')
+        #     i += length
+        # return self.IDAT
 
 
     def __str__(self) -> str:
@@ -115,7 +136,7 @@ class AncillaryChunks:
 class Image:
     criticalChunks: CriticalChunks
     ancillaryChunks: AncillaryChunks
-    rawIDATData: List[int] #IDAT after decompression and defiltering
+    rawIDATData: np.array #IDAT after decompression and defiltering | SHAPE(height, width, pixel color depth)
 
     def __init__(self, image_binary_data):
         CriticalChunkList = []
@@ -157,22 +178,33 @@ class Image:
         # plt.axis('off')
         # plt.show()
 
-    def encryptImage(self):
-        ecb = ECB()
-        ecb.encrypt(self.rawIDATData)
-        ecb.decrypt()
+    def encryptImage(self, RSA_encrytp:bool = False, ECB_encrypt:bool = False, CBC_encrypt:bool = False):
+        if ECB_encrypt:
+            ecb = ECB()
+            encrypted_data = ecb.encrypt(self.rawIDATData)
+            return encrypted_data
+        if CBC_encrypt:
+            cbc = CBC()
+            cbc.encrypt(self.rawIDATData)
+        if RSA_encrytp:
+            pass
+            # rsaa = RSA()
+            # rsaa.encryption(self.rawIDATData)
 
 
 
-
-    def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool):
+    def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool, replace_idat:np.array = None):
         img_binary_file.write(signature)
         img_binary_file.write(self.criticalChunks.IHDR.ReturnData())
         if exclude_ancillary is False:
             img_binary_file.write(self.ancillaryChunks.returnChunkData())
         if self.criticalChunks.PLTE is not None:
                 img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
-        img_binary_file.write(self.criticalChunks.returnIDAT())
+        if replace_idat is None:
+            img_binary_file.write(self.criticalChunks.returnIDAT())
+        else:
+            self.criticalChunks.IDAT = self.criticalChunks.create_crypted_IDAT(replace_idat)
+            img_binary_file.write(self.criticalChunks.returnIDAT())
         img_binary_file.write(self.criticalChunks.IEND.ReturnData())
         return img_binary_file
         

@@ -3,42 +3,53 @@ import numpy as np
 import os
 from typing import List
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
 import sys
 import matplotlib.pyplot as plt
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 import logging
+import png
 
 logger = logging.getLogger("loger")
 
 
-@dataclass(init=False)
-class RSA:
-
-    def __init__(self) -> None:
-        RSA.generateRSAKeys()
-
-
-    @classmethod
-    def generateRSAKeys(cls):
-        cls.private_key = rsa.generate_private_key(public_exponent=65537,key_size=2048)
-        cls.public_key = cls.private_key.public_key()
-        
-
-    
-
 @dataclass
-class ECB():
-    key: bytes = None
-    added_bytes: int = None
+class RSA:
+    public_key: bytes = None
+    private_key: bytes = None
     _encrypted: np.array = None
     _original: np.array = None
 
-
     def __post_init__(self) -> None:
-        self.generatekey()
+        logger.info("Generating RSA key-pairs..")
+        self.private_key = rsa.generate_private_key(public_exponent=65537,key_size=2048)
+        self.public_key = self.private_key.public_key()
 
-    def generatekey(self ,number_of_bytes: int = 12):
-        logger.info("Generating ECB key")
-        self.key = os.urandom(number_of_bytes)
+    def get_public_key_bytes(self):
+        public_key_bytes = self.public_key.public_bytes(
+            encoding=serialization.Encoding.DER,  # Format DER
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        return public_key_bytes
+
+    #NIE DZIAŁA JESZCZE
+    def encryption(self,raw_original_data:np.array):
+        original_shape = raw_original_data.shape
+        data = raw_original_data.tobytes()
+        encrypted_data = self.public_key.encrypt(data, padding.OAEP(
+        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+        algorithm=hashes.SHA256(),
+        label=None))
+
+        # Display encrypted data as a byte stream (not reshaping to original shape)
+        encrypted_array = np.frombuffer(encrypted_data, dtype='uint8')
+
+        # This is just to demonstrate the encrypted byte stream visually
+        plt.figure(figsize=(10, 2))
+        plt.plot(encrypted_array, marker='o', linestyle='None')
+        plt.title("Encrypted Data Byte Stream")
+        plt.show()
 
     '''
     Funkcja do dzielenia dane z obrazu na bloki. Deafaultowo 12 bajtowe. Dla obrazu RGB będą to 4 piksele.
@@ -47,7 +58,8 @@ class ECB():
     Return:
         * 
     '''
-    def split_data(self, full_data: np.array, number_of_bytes: int = 12):
+    def split_data(self,full_data: np.array):
+        number_of_bytes = len(self.get_public_key_bytes())
         logger.info("Performing IDAT Data splitting")
         #we take the original shape and create 1D vector with data
         shape_tuple = full_data.shape
@@ -55,9 +67,8 @@ class ECB():
 
         idx = 0
         data_blocks = []
-        missing_bytes = None
 
-        while idx <= len(full_data) - 1:
+        while idx < len(full_data):
             #iterate over the data and split them into blocks with lenght = number of bytes
             #if we cannot get full block of data at the end we perform padding and add extra bytes to create full block
             if idx + number_of_bytes <= len(full_data):    
@@ -66,16 +77,29 @@ class ECB():
             else:
                 diff = len(full_data) - idx
                 last_data_bytes = full_data[idx:idx+diff]
-                missing_bytes = number_of_bytes - diff
-                self.added_bytes = [0 for iter in range(missing_bytes)]
-                list_sum = np.concatenate((last_data_bytes,self.added_bytes),axis=0)
+                self.added_bytes = number_of_bytes - diff
+                added_bytes_list = [0 for iter in range(self.added_bytes)]
+                list_sum = np.concatenate((last_data_bytes,added_bytes_list),axis=0)
                 data_blocks.append(list_sum)
                 idx += diff
         logger.info("Data succesfully splitted")
-        return np.array(data_blocks),shape_tuple, missing_bytes
-        
-            
+        return np.array(data_blocks),shape_tuple
 
+
+        
+
+
+        
+
+    
+
+@dataclass
+class ECB(RSA):
+    added_bytes: int = None
+
+
+    def __post_init__(self) -> None:
+        return super().__post_init__()
 
     '''
     Funkcja przeprowadzająca szyfrowanie ECB z wykrzystaniem operacji XOR między bajtami w kluczu i danych.
@@ -84,15 +108,18 @@ class ECB():
     '''
 
     def encrypt_and_decrypt_algorithm(self, full_data:np.array):
-        data,shape,nr_of_added_bytes = self.split_data(full_data)
+        public_key_bytes = self.get_public_key_bytes()
+
+
+        data,shape = self.split_data(full_data)
         data_after_operation = []
         # for every byte in data block we perform XOR operation with corresponding byte in key.
         for block in data:
             for iter in range(len(block)):
-                data_after_operation.append(block[iter] ^ self.key[iter])
+                data_after_operation.append(block[iter] ^ public_key_bytes[iter])
         # if we have additional encrypted data we get rid of it for now - we dont need it to recreate image
-        if nr_of_added_bytes is not None:
-            data_after_operation = data_after_operation[:-nr_of_added_bytes]
+        if self.added_bytes is not None:
+            data_after_operation = data_after_operation[:-self.added_bytes]
         data_after_operation = np.reshape(data_after_operation,shape)
 
         #we create encrypted image
@@ -108,6 +135,7 @@ class ECB():
         logger.info("Starting encryption with ECB algorithm")
         self._encrypted = self.encrypt_and_decrypt_algorithm(original_data)
         logger.info("Encryption with ECB algorithm successful")
+        return self._encrypted
 
     def decrypt(self):
         logger.info("Starting decryption with ECB algorithm")
@@ -115,5 +143,37 @@ class ECB():
         logger.info("Decryption with ECB algorithm successful")
 
 
-class CTR:
-    pass
+class CBC(RSA):
+    added_bytes: int = None
+
+
+    def __post_init__(self) -> None:
+        return super().__post_init__()
+    
+
+    def encrypt(self, full_data: np.array):
+        public_key_bytes = self.get_public_key_bytes()
+
+        data, shape = self.split_data(full_data)
+        data_after_operation = []
+
+        previous_block = public_key_bytes
+        # Encrypt the first block with the IV
+        for block in data:
+            # XOR with the previous ciphertext (or key for the first block)
+            encrypted_block = [block[iter] ^ previous_block[iter] for iter in range(len(block))]
+            data_after_operation.extend(encrypted_block)
+            previous_block = encrypted_block
+
+        # If we have additional encrypted data, we get rid of it for now - we don't need it to recreate the image
+        if self.added_bytes is not None:
+            data_after_operation = data_after_operation[:-self.added_bytes]
+
+        data_after_operation = np.reshape(data_after_operation, shape)
+
+        # f = plt.figure()
+        # plt.imshow(data_after_operation)
+        # plt.axis("off")
+        # plt.show()
+
+        return data_after_operation
