@@ -116,3 +116,4 @@ class ECB():
 
 
 class CTR:
+    pass

@@ -115,7 +115,7 @@ class AncillaryChunks:
 class Image:
     criticalChunks: CriticalChunks
     ancillaryChunks: AncillaryChunks
-    rawIDATData: List[int]
+    rawIDATData: List[int] #IDAT after decompression and defiltering
 
     def __init__(self, image_binary_data):
         CriticalChunkList = []
@@ -161,6 +161,7 @@ class Image:
         ecb = ECB()
         ecb.encrypt(self.rawIDATData)
         ecb.decrypt()
+
 
 
 
