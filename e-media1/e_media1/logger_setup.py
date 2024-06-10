@@ -1,6 +1,9 @@
 import logging
 import colorlog
 
+
+
+
 def setup_color_logging():
     # Konfiguracja handlera dla colorlog
     handler = colorlog.StreamHandler()
