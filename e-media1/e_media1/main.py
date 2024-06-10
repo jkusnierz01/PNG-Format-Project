@@ -2,21 +2,30 @@ import PIL
 import argparse
 from pathlib import Path
 import matplotlib.pyplot as plt
-from e_media1.chunksclasses import Image
-from e_media1.fourier import createFourierPlots
-from e_media1.encrypt import ECB
-from e_media1.logger_setup import setup_color_logging
+from chunksclasses import Image
+from fourier import createFourierPlots
+from encrypt import ECB
+from logger_setup import setup_color_logging
 import png
 
 parser = argparse.ArgumentParser(description="Process PNG File")
 parser.add_argument('path',help = 'Path to PNG file')
 parser.add_argument('-r','--removeAll', action='store_true', required=False, dest='remove_all',help="Remove all Ancillary Chunks from file")
 parser.add_argument('-e', '--ecbencrypt', action='store_true',required=False,dest ='ECBencrypt',help="Encrypt Image with ECB algorithm")
+parser.add_argument('-c', '--cbcencrypt', action='store_true',required=False,dest ='CBCencrypt',help="Encrypt Image with CBC algorithm")
+parser.add_argument('-rsa', '--rsaencrypt', action='store_true',required=False,dest ='RSAencrypt',help="Encrypt Image with RSA algorithm")
+
 args = parser.parse_args()
 
 
-
-
+def image_plot(encrypted:Image):
+    f = plt.figure()
+    plt.imshow(encrypted)
+    # plt.show()
+    height, width, depth = encrypted.shape
+    encrypted = encrypted.reshape((height, width * depth))
+    w = png.Writer(width, height, greyscale=False, alpha=True)
+    return w
 
 def main():
     #setting up logger
@@ -39,16 +48,26 @@ def main():
                 image.displayImageData()
                 # createFourierPlots(grayscale_image)
                 if(args.ECBencrypt):
-                    encrypted = image.encryptImage(ECB_encrypt=True,CBC_encrypt=True)
-                    f = plt.figure()
-                    plt.imshow(encrypted)
-                    plt.show()
-                    height,width,depth = encrypted.shape
-                    encrypted = encrypted.reshape((height,width*depth))
-                    w = png.Writer(width,height,greyscale=False,alpha=True)
+                    encrypted = image.ECBencrypt()
+                    logger.info("Plotting ECB Encrypted Image")
+                    w = image_plot(encrypted)
+                    logger.info("Writing ECB Encrypted Image")
+                    with open("output.png", 'wb') as out_image_ecb:
+                        w.write(out_image_ecb, encrypted)
+                    logger.info("Writing done")
+                if(args.CBCencrypt):
+                    encrypted = image.CBCencrypt()
+                    w = image_plot(encrypted)
+                    with open("output.png", 'wb') as out_image_cbc:
+                        w.write(out_image_cbc, encrypted)
+                if(args.RSAencrypt):
+                    encrypted = image.RSAencrypt()
+                    w = image_plot(encrypted)
+                    with open("output.png", 'wb') as out_image_rsa:
+                        w.write(out_image_rsa, encrypted)
                 # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
-                with open("output.png",'wb') as out_image:
-                    w.write(out_image,encrypted)
+                # with open("output.png", 'wb') as out_image:
+                #     w.write(out_image, encrypted)
                     # out_image = image.restoreImage(out_image, signature, args.remove_all)
 
             else:

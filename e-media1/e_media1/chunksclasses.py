@@ -2,14 +2,14 @@ from dataclasses import dataclass, field
 from typing import List
 import logging
 from tabulate import tabulate
-from e_media1.basechunks import *
+from basechunks import *
 import zlib
 import logging
-from e_media1.filtering_methods import ReconstructingMethods
+from filtering_methods import ReconstructingMethods
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
-from e_media1.encrypt import ECB,CBC
+from encrypt import ECB,CBC
 import png
 
 
@@ -178,20 +178,20 @@ class Image:
         # plt.axis('off')
         # plt.show()
 
-    def encryptImage(self, RSA_encrytp:bool = False, ECB_encrypt:bool = False, CBC_encrypt:bool = False):
-        if ECB_encrypt:
-            ecb = ECB()
-            encrypted_data = ecb.encrypt(self.rawIDATData)
-            return encrypted_data
-        if CBC_encrypt:
-            cbc = CBC()
-            cbc.encrypt(self.rawIDATData)
-        if RSA_encrytp:
-            pass
-            # rsaa = RSA()
-            # rsaa.encryption(self.rawIDATData)
+    def ECBencrypt(self):
+        ecb = ECB()
+        encrypted_data = ecb.encrypt(self.rawIDATData)
+        return encrypted_data
 
+    def CBCencrypt(self):
+        cbc = CBC()
+        encrypted_data = cbc.encrypt(self.rawIDATData)
+        return encrypted_data
 
+    def RSAencrypt(self):
+        pass
+        # rsaa = RSA()
+        # rsaa.encryption(self.rawIDATData)
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool, replace_idat:np.array = None):
         img_binary_file.write(signature)

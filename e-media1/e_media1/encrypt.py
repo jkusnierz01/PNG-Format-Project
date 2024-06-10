@@ -84,13 +84,6 @@ class RSA:
                 idx += diff
         logger.info("Data succesfully splitted")
         return np.array(data_blocks),shape_tuple
-
-
-        
-
-
-        
-
     
 
 @dataclass
@@ -145,7 +138,6 @@ class ECB(RSA):
 
 class CBC(RSA):
     added_bytes: int = None
-
 
     def __post_init__(self) -> None:
         return super().__post_init__()
