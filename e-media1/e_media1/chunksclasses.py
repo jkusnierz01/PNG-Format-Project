@@ -221,35 +221,18 @@ class Image:
         try:
             ecb = ECB()
             encrypted = ecb.encrypt(self.rawIDATData)
-            self.saveImage(path='../ECB',filename='ecb_encrypt.png',data=encrypted)
+            self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images', filename='ecb_encrypt.png',data=encrypted)
             decrypted = ecb.decrypt()
-            self.saveImage(path='../ECB',filename='ecb_decrypt.png',data=decrypted)
+            self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images', filename='ecb_decrypt.png',data=decrypted)
         except Exception as e:
             logger.error(f"Error in encryptECB function: {e}")
 
     def encryptCBC(self):
         cbc = CBC()
         encrypted = cbc.encrypt(self.rawIDATData)
-        self.saveImage(path='../CBC',filename='cbc_encrypt.png',data=encrypted)
+        self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images',filename='cbc_encrypt.png',data=encrypted)
         decrypted = cbc.decrypt()
-        self.saveImage(path='../CBC',filename='cbc_decrypt.png',data=decrypted)
-
-
-
-    def encryptImage(self, RSA_encrytp:bool = False, ECB_encrypt:bool = False, CBC_encrypt:bool = False):
-        if ECB_encrypt:
-            ecb = ECB()
-            encrypted_data = ecb.encrypt(self.rawIDATData)
-            return encrypted_data
-        if CBC_encrypt:
-            cbc = CBC()
-            cbc.encrypt(self.rawIDATData)
-        if RSA_encrytp:
-            pass
-            # rsaa = RSA()
-            # rsaa.encryption(self.rawIDATData)
-    
-
+        self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images',filename='cbc_decrypt.png',data=decrypted)
 
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool, replace_idat:np.array = None):
