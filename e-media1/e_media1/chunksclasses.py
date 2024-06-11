@@ -1,16 +1,15 @@
 from dataclasses import dataclass, field
 from typing import List
 import logging
-from tabulate import tabulate
 from e_media1.basechunks import *
 import zlib
 import logging
 from e_media1.filtering_methods import ReconstructingMethods
 import numpy as np
-import sys
-import matplotlib.pyplot as plt
 from e_media1.encrypt import ECB,CBC
 import png
+import os
+from pathlib import Path
 
 
 logger = logging.getLogger("loger")
@@ -168,15 +167,74 @@ class Image:
         self.criticalChunks = CriticalChunks(CriticalChunkList)
         self.ancillaryChunks = AncillaryChunks(AncillaryChunkList)
         self.rawIDATData = self.criticalChunks.reconstructIDATData()
-        # out_arr = []
-        # for iter in range(int(len(self.rawIDATData)/x)):
-        #     tab = self.rawIDATData[iter * x:iter*x + x]
-        #     out_arr.append(tab)
-        # y = np.array(out_arr)
-        # plt.figure(3)
-        # plt.imshow(y.reshape(self.criticalChunks.IHDR.height,self.criticalChunks.IHDR.width,x))
-        # plt.axis('off')
-        # plt.show()
+
+
+
+    def saveImage(self,path:str, filename:str,data:np.array) -> None:
+        '''
+        Saving Image with encrypted data
+
+        Args:
+            *path -> str: path to folder in which output image will be stored
+            *filename -> str: name of output image 
+            *data -> np.array: encrypted data
+        
+        Return:
+            *None
+        '''
+        logger.info(f"Saving output image: {filename}")
+        try:
+            height,width,color = data.shape
+            data_reshaped = data.reshape((height,width * color))
+            encrypted_list = data_reshaped.tolist()
+            if color == 1:
+                grayscale = True
+                alpha = False
+            elif color == 2:
+                grayscale = True
+                alpha = True
+            elif color == 3:
+                grayscale = False
+                alpha = False
+            else:
+                grayscale = False
+                alpha = True
+            writer = png.Writer(width,height,greyscale=grayscale,alpha=alpha)
+
+            #we check if folder exist, if not we crate directory
+            if not os.path.exists(path):
+                os.mkdir(path)
+            full_path = path + '/' + filename
+            Full_path = Path(full_path)
+            #saving output image
+            with open(Full_path, 'wb') as out_file:
+                writer.write(out_file,encrypted_list)
+        except Exception as e:
+            logger.error(f"Saving output image: {filename}")
+            
+
+    def encrytpRSA(self):
+        pass
+
+
+    def encryptECB(self) -> None:
+        try:
+            ecb = ECB()
+            encrypted = ecb.encrypt(self.rawIDATData)
+            self.saveImage(path='../ECB',filename='ecb_encrypt.png',data=encrypted)
+            decrypted = ecb.decrypt()
+            self.saveImage(path='../ECB',filename='ecb_decrypt.png',data=decrypted)
+        except Exception as e:
+            logger.error(f"Error in encryptECB function: {e}")
+
+    def encryptCBC(self):
+        cbc = CBC()
+        encrypted = cbc.encrypt(self.rawIDATData)
+        self.saveImage(path='../CBC',filename='cbc_encrypt.png',data=encrypted)
+        decrypted = cbc.decrypt()
+        self.saveImage(path='../CBC',filename='cbc_decrypt.png',data=decrypted)
+
+
 
     def encryptImage(self, RSA_encrytp:bool = False, ECB_encrypt:bool = False, CBC_encrypt:bool = False):
         if ECB_encrypt:
@@ -190,6 +248,7 @@ class Image:
             pass
             # rsaa = RSA()
             # rsaa.encryption(self.rawIDATData)
+    
 
 
 

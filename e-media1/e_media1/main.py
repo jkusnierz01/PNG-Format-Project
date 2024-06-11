@@ -12,6 +12,8 @@ parser = argparse.ArgumentParser(description="Process PNG File")
 parser.add_argument('path',help = 'Path to PNG file')
 parser.add_argument('-r','--removeAll', action='store_true', required=False, dest='remove_all',help="Remove all Ancillary Chunks from file")
 parser.add_argument('-e', '--ecbencrypt', action='store_true',required=False,dest ='ECBencrypt',help="Encrypt Image with ECB algorithm")
+parser.add_argument('-c', '--cbcencrypt', action='store_true',required=False,dest ='CBCencrypt',help="Encrypt Image with CBC algorithm")
+parser.add_argument('-rsa', '--rsaencrypt', action='store_true',required=False,dest ='RSAencrypt',help="Encrypt Image with RSA algorithm")
 args = parser.parse_args()
 
 
@@ -36,20 +38,17 @@ def main():
             signature = image_binary.read(8)
             if signature == b'\x89PNG\r\n\x1a\n':
                 image = Image(image_binary)
-                image.displayImageData()
+                # image.displayImageData()
                 # createFourierPlots(grayscale_image)
                 if(args.ECBencrypt):
-                    encrypted = image.encryptImage(ECB_encrypt=True,CBC_encrypt=True)
-                    f = plt.figure()
-                    plt.imshow(encrypted)
-                    plt.show()
-                    height,width,depth = encrypted.shape
-                    encrypted = encrypted.reshape((height,width*depth))
-                    w = png.Writer(width,height,greyscale=False,alpha=True)
+                    image.encryptECB()
+                if(args.CBCencrypt):
+                    image.encryptCBC()
+                if(args.RSAencrypt):
+                    image.encrytpRSA()
                 # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
                 with open("output.png",'wb') as out_image:
-                    w.write(out_image,encrypted)
-                    # out_image = image.restoreImage(out_image, signature, args.remove_all)
+                    out_image = image.restoreImage(out_image, signature, args.remove_all)
 
             else:
                 logger.error("Wrong file format!")
