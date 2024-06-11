@@ -15,6 +15,7 @@ parser.add_argument('-e', '--ecbencrypt', action='store_true',required=False,des
 parser.add_argument('-c', '--cbcencrypt', action='store_true',required=False,dest ='CBCencrypt',help="Encrypt Image with CBC algorithm")
 parser.add_argument('-rsa', '--rsaencrypt', action='store_true',required=False,dest ='RSAencrypt',help="Encrypt Image with RSA algorithm")
 
+
 args = parser.parse_args()
 
 
@@ -45,31 +46,17 @@ def main():
             signature = image_binary.read(8)
             if signature == b'\x89PNG\r\n\x1a\n':
                 image = Image(image_binary)
-                image.displayImageData()
+                # image.displayImageData()
                 # createFourierPlots(grayscale_image)
                 if(args.ECBencrypt):
-                    encrypted = image.ECBencrypt()
-                    logger.info("Plotting ECB Encrypted Image")
-                    w = image_plot(encrypted)
-                    logger.info("Writing ECB Encrypted Image")
-                    with open("output.png", 'wb') as out_image_ecb:
-                        w.write(out_image_ecb, encrypted)
-                    logger.info("Writing done")
+                    image.encryptECB()
                 if(args.CBCencrypt):
-                    encrypted = image.CBCencrypt()
-                    w = image_plot(encrypted)
-                    with open("output.png", 'wb') as out_image_cbc:
-                        w.write(out_image_cbc, encrypted)
+                    image.encryptCBC()
                 if(args.RSAencrypt):
-                    encrypted = image.RSAencrypt()
-                    w = image_plot(encrypted)
-                    with open("output.png", 'wb') as out_image_rsa:
-                        w.write(out_image_rsa, encrypted)
+                    image.encrytpRSA()
                 # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
-                # with open("output.png", 'wb') as out_image:
-                #     w.write(out_image, encrypted)
-                    # out_image = image.restoreImage(out_image, signature, args.remove_all)
-
+                with open("output.png",'wb') as out_image:
+                    out_image = image.restoreImage(out_image, signature, args.remove_all)
             else:
                 logger.error("Wrong file format!")
     else:
