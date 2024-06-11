@@ -118,13 +118,6 @@ class RSA:
         except Exception as e:
             logger.error(f"Error - splitting data: {e}")
             return None, None
-
-
-        
-
-
-        
-
     
 
 @dataclass

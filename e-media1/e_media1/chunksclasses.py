@@ -136,10 +136,12 @@ class Image:
     criticalChunks: CriticalChunks
     ancillaryChunks: AncillaryChunks
     rawIDATData: np.array #IDAT after decompression and defiltering | SHAPE(height, width, pixel color depth)
+    path_to_save: str
 
-    def __init__(self, image_binary_data):
+    def __init__(self, image_binary_data, save_path: str):
         CriticalChunkList = []
         AncillaryChunkList = []
+        self.path_to_save = save_path
         while image_binary_data:
             try:
                 # odczytujemy dane z chunka
@@ -221,18 +223,18 @@ class Image:
         try:
             ecb = ECB()
             encrypted = ecb.encrypt(self.rawIDATData)
-            self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images', filename='ecb_encrypt.png',data=encrypted)
+            self.saveImage(self.path_to_save, filename='ecb_encrypt.png',data=encrypted)
             decrypted = ecb.decrypt()
-            self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images', filename='ecb_decrypt.png',data=decrypted)
+            self.saveImage(self.path_to_save, filename='ecb_decrypt.png',data=decrypted)
         except Exception as e:
             logger.error(f"Error in encryptECB function: {e}")
 
     def encryptCBC(self):
         cbc = CBC()
         encrypted = cbc.encrypt(self.rawIDATData)
-        self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images',filename='cbc_encrypt.png',data=encrypted)
+        self.saveImage(self.path_to_save,filename='cbc_encrypt.png',data=encrypted)
         decrypted = cbc.decrypt()
-        self.saveImage(path=os.path.dirname(os.path.abspath(__file__))+'/../output_images',filename='cbc_decrypt.png',data=decrypted)
+        self.saveImage(self.path_to_save,filename='cbc_decrypt.png',data=decrypted)
 
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool, replace_idat:np.array = None):

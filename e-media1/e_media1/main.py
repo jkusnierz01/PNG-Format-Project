@@ -41,12 +41,16 @@ def main():
         img = plt.imread(args.path)
         grayscale_image = img[:, :, :3].mean(axis=2)
 
+        # tworzenie / upewnienie sie o istnieniu folderu do zapisu obrazow wyjsciowych
+        save_path:str = os.path.dirname(os.path.abspath(__file__))+"/../output_images/"
+        os.makedirs(save_path, exist_ok=True)
+
         with open(args.path,'r+b') as image_binary:
 
             # sprawdzenie sygnatury
             signature = image_binary.read(8)
             if signature == b'\x89PNG\r\n\x1a\n':
-                image = Image(image_binary)
+                image = Image(image_binary, save_path)
                 # image.displayImageData()
                 # createFourierPlots(grayscale_image)
                 if(args.ECBencrypt):
@@ -56,8 +60,7 @@ def main():
                 if(args.RSAencrypt):
                     image.encrytpRSA()
                 # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
-                os.makedirs(os.path.dirname(os.path.abspath(__file__))+"/../output_images/", exist_ok=True)
-                with open(os.path.dirname(os.path.abspath(__file__))+"/../output_images/restored.png",'wb') as out_image:
+                with open(save_path+"/restored.png",'wb') as out_image:
                     out_image = image.restoreImage(out_image, signature, args.remove_all)
             else:
                 logger.error("Wrong file format!")
