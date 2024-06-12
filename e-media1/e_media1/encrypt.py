@@ -20,6 +20,7 @@ class RSA:
     private_key: bytes = None
     _encrypted: np.array = None
     _original: np.array = None
+    added_bytes: int = None
 
     def __post_init__(self) -> None:
         """
@@ -31,6 +32,14 @@ class RSA:
             self.public_key = self.private_key.public_key()
         except Exception as e:
             logger.error(f"Error generating RSA key-pairs: {e}")
+        """
+        Possible alternative:
+        """
+        # try:
+        #     # Generate RSA key pair
+        #     self.private_key, self.public_key = rsa.newkeys(2048)
+        # except rsa.pkcs1.CryptoError as e:
+        #     logger.error(f"Error generating RSA key-pairs: {e}")
 
 
     def get_public_key_bytes(self):
@@ -46,10 +55,10 @@ class RSA:
         except Exception as e:
             logger.error(f"Error during conversion RSA public-key to bytes")
             return None
-        
+
 
     #NIE DZIAŁA JESZCZE
-    def encryption(self,raw_original_data:np.array):
+    def encrypt_test(self,raw_original_data:np.array):
         """
         Encrypt image data with RSA
 
@@ -61,22 +70,74 @@ class RSA:
         """
 
         original_shape = raw_original_data.shape
-        data = raw_original_data.tobytes()
-        encrypted_data = self.public_key.encrypt(data, padding.OAEP(
-        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-        algorithm=hashes.SHA256(),
-        label=None))
+        # data = raw_original_data.tobytes()
+        # encrypted_data = self.encrypt(data)
+        encrypted_data = self.encrypt(raw_original_data)
+
+        encrypted_array = np.frombuffer(encrypted_data, dtype='uint8')
+        self._encrypted = np.reshape(encrypted_array, original_shape)
 
         # Display encrypted data as a byte stream (not reshaping to original shape)
-        encrypted_array = np.frombuffer(encrypted_data, dtype='uint8')
+        # encrypted_array = np.frombuffer(encrypted_data, dtype='uint8')
 
         # This is just to demonstrate the encrypted byte stream visually
-        plt.figure(figsize=(10, 2))
-        plt.plot(encrypted_array, marker='o', linestyle='None')
-        plt.title("Encrypted Data Byte Stream")
+        # plt.figure(figsize=(10, 2))
+        # plt.plot(encrypted_data, marker='o', linestyle='None')
+        # plt.title("Encrypted Data Byte Stream")
+        # logger.info("plotting...")
+        # plt.show()
+
+        plt.imshow(self._encrypted, cmap='gray')  # Use 'cmap' parameter if the image is grayscale
+        plt.title("Encrypted Image")
+        plt.axis('off')  # Hide axis
         plt.show()
 
-    
+
+    def encrypt(self, original_data: np.array):
+        # data, shape = self.split_data(original_data)
+        # data_after_operation = []
+        # i = 0
+        # for raw_block in data:
+        #     try:
+        #         logger.info(f"Encrypting block {i}")
+        #         block = raw_block.tobytes()
+        #         encrypted_block = self.public_key.encrypt(
+        #             block,
+        #             padding.OAEP(
+        #                 mgf=padding.MGF1(algorithm=hashes.SHA256()),
+        #                 algorithm=hashes.SHA256(),
+        #                 label=None))
+        #         data_after_operation.extend(encrypted_block)
+        #     except Exception as e:
+        #         logger.error(f"Error during RSA encryption: {e}")
+        #         sys.exit()
+        #
+        # self._encrypted = np.reshape(data_after_operation, shape)
+        # return self._encrypted
+        logger.info("Encrypting with RSA")
+        max_chunk_size = 190
+        data = self.split_data_2(original_data.tobytes(), max_chunk_size)
+        encrypted_data = b''  # Initialize as empty bytes
+        for i, chunk in enumerate(data):
+            try:
+                # logger.info(f"Encrypting block {i}")
+                encrypted_chunk = self.public_key.encrypt(
+                    chunk,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+                encrypted_data += encrypted_chunk
+            except Exception as e:
+                logger.error(f"Error during RSA encryption: {e}")
+                sys.exit(1)
+        return encrypted_data
+
+    def split_data_2(self, data, max_chunk_size):
+        # Split data into chunks of max_chunk_size
+        return [data[i:i + max_chunk_size] for i in range(0, len(data), max_chunk_size)]
 
     def split_data(self,full_data: np.array) -> np.array:
         '''
@@ -118,12 +179,10 @@ class RSA:
         except Exception as e:
             logger.error(f"Error - splitting data: {e}")
             return None, None
-    
 
 @dataclass
 class ECB(RSA):
     added_bytes: int = None
-
 
     def __post_init__(self) -> None:
         '''
@@ -131,7 +190,6 @@ class ECB(RSA):
         '''
         return super().__post_init__()
 
-    
 
     def encrypt_and_decrypt_algorithm(self, full_data:np.array) -> np.array:
         '''

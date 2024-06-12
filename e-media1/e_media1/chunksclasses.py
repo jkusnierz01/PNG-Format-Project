@@ -6,7 +6,7 @@ import zlib
 import logging
 from e_media1.filtering_methods import ReconstructingMethods
 import numpy as np
-from e_media1.encrypt import ECB,CBC
+from e_media1.encrypt import ECB, CBC, RSA
 import png
 import os
 from pathlib import Path
@@ -216,7 +216,18 @@ class Image:
             
 
     def encrytpRSA(self):
-        pass
+        rsa = RSA()
+        rsa.encrypt_test(self.rawIDATData)
+        # try:
+        #     rsa = RSA()
+        #     encrypted = rsa.encrypt(self.rawIDATData)
+        #     self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted)
+        #     decrypted = rsa.decrypt()
+        #     self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=decrypted)
+        # except Exception as e:
+        #     logger.error(f"Error in encryptRSA function: {e}")
+
+
 
 
     def encryptECB(self) -> None:
@@ -230,11 +241,14 @@ class Image:
             logger.error(f"Error in encryptECB function: {e}")
 
     def encryptCBC(self):
-        cbc = CBC()
-        encrypted = cbc.encrypt(self.rawIDATData)
-        self.saveImage(self.path_to_save,filename='cbc_encrypt.png',data=encrypted)
-        decrypted = cbc.decrypt()
-        self.saveImage(self.path_to_save,filename='cbc_decrypt.png',data=decrypted)
+        try:
+            cbc = CBC()
+            encrypted = cbc.encrypt(self.rawIDATData)
+            self.saveImage(self.path_to_save, filename='cbc_encrypt.png', data=encrypted)
+            decrypted = cbc.decrypt()
+            self.saveImage(self.path_to_save, filename='cbc_decrypt.png', data=decrypted)
+        except Exception as e:
+            logger.error(f"Error in encryptCBC function: {e}")
 
 
     def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool, replace_idat:np.array = None):
