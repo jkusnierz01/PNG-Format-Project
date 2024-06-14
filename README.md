@@ -18,3 +18,9 @@ This project involves creating an application that decodes information contained
    - Optional test of the program on random data.
    - Discussion about the use of Fourier transformation in the context of the selected multimedia format.
    - Submission of the source code for archival purposes.
+
+## Additional Information
+
+- Preferred group size is 2 people.
+- Any programming language can be used (consider the second part of the project when choosing).
+- The program does not need a GUI, but adding one is encouraged. There are no requirements regarding ergonomics and aesthetics.
