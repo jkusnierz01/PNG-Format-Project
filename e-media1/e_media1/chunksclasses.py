@@ -56,7 +56,7 @@ class CriticalChunks:
         bytes_per_pixel = color_type_bytes.get(self.IHDR.color,None)
         expected_IDAT_data_length = height * (1 + width * bytes_per_pixel)
         if(len(decompressed_data) != expected_IDAT_data_length):
-            logger.error("Decompressed Data Lenght not correct")
+            logger.error(f"Decompressed Data Lenght not correct: {len(decompressed_data)} vs expected: {expected_IDAT_data_length}")
         Reconstructed = []
         i = 0
         if bytes_per_pixel is None:
@@ -70,7 +70,7 @@ class CriticalChunks:
                 i+=1
                 reconstructed = method(x, row, col, Reconstructed, width, bytes_per_pixel)
                 Reconstructed.append(reconstructed & 0xff)
-        Reconstructed = np.array(Reconstructed).reshape(height,width,bytes_per_pixel)
+        Reconstructed = np.array(Reconstructed,dtype=np.uint8).reshape(height,width,bytes_per_pixel)
         return Reconstructed
     
 
@@ -265,10 +265,12 @@ class Image:
 
     def encrytpRSA(self):
         rsa = RSA()
-        encrypted,shape,padding_lenght,encrypted_array = rsa.encrypt(self.rawIDATData)
-        self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted)
-        original_data = rsa.decrypt(encrypted_array,shape,padding_lenght)
-        self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=original_data)
+        encrypted_int_reshaped, padded, int_data = rsa.encrypt(self.rawIDATData)
+        self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted_int_reshaped)
+        decrypted = rsa.decrypt(int_data,self.rawIDATData.shape)
+        self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=decrypted)
+        # original_data = rsa.decrypt(encrypted_array,shape,padding_lenght)
+        # self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=original_data)
         # encrypted, excesive = rsa.encrypt(self.rawIDATData)
         # self.save_image_using_pillow(encrypted,excesive,'rsa_encrypt.png', self.path_to_save)
         # data,excesive = self.readImage()

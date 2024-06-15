@@ -9,8 +9,10 @@ import matplotlib.pyplot as plt
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 import logging
-import png
+import random
+
 import math
+import sympy
 
 logger = logging.getLogger("loger")
 
@@ -20,9 +22,43 @@ class RSA:
     public_key: bytes = None
     private_key: bytes = None
     _encrypted: np.array = None
+    _padding: bytes = None
     _original: np.array = None
     added_bytes: int = None
 
+   # def __post_init__(self) -> None:
+    #     """
+    #     Generate RSA key-pairs upon initialization.
+    #     """
+    #     logger.info("Generating RSA key-pairs..")
+    #     try:
+    #         self.private_key = rsa.generate_private_key(public_exponent=65537,key_size=2048)
+    #         self.public_key = self.private_key.public_key()
+    #     except Exception as e:
+    #         logger.error(f"Error generating RSA key-pairs: {e}")
+    #     """
+    #     Possible alternative:
+    #     """
+    #     # try:
+    #     #     # Generate RSA key pair
+    #     #     self.private_key, self.public_key = rsa.newkeys(2048)
+    #     # except rsa.pkcs1.CryptoError as e:
+    #     #     logger.error(f"Error generating RSA key-pairs: {e}")
+
+
+    # def get_public_key_bytes(self):
+    #     """
+    #     Convert RSA public key to bytes.
+    #     """
+    #     try:
+    #         public_key_bytes = self.public_key.public_bytes(
+    #             encoding=serialization.Encoding.DER,  # Format DER
+    #             format=serialization.PublicFormat.SubjectPublicKeyInfo
+    #         )
+    #         return public_key_bytes
+    #     except Exception as e:
+    #         logger.error(f"Error during conversion RSA public-key to bytes")
+    #         return None
 
     def __post_init__(self) -> None:
         """
@@ -30,116 +66,119 @@ class RSA:
         """
         logger.info("Generating RSA key-pairs..")
         try:
-            self.private_key = rsa.generate_private_key(public_exponent=65537,key_size=2048)
-            self.public_key = self.private_key.public_key()
+            p = self.generate_large_prime()
+            q = self.generate_large_prime()
+            n = p * q
+            phi_n = (p - 1) * (q - 1)
+            e = self.find_coprime(phi_n)
+            d = self.mod_inverse(e, phi_n)
+            self.public_key = (e, n)
+            self.private_key = (d, n)
         except Exception as e:
             logger.error(f"Error generating RSA key-pairs: {e}")
-        """
-        Possible alternative:
-        """
-        # try:
-        #     # Generate RSA key pair
-        #     self.private_key, self.public_key = rsa.newkeys(2048)
-        # except rsa.pkcs1.CryptoError as e:
-        #     logger.error(f"Error generating RSA key-pairs: {e}")
 
+    def generate_large_prime(self, bits=1024) -> int:
+        while True:
+            num = random.getrandbits(bits)
+            if self.is_prime(num):
+                return num
+
+    def is_prime(self, n: int, k=128) -> bool:
+        """ Miller-Rabin primality test """
+        if n == 2 or n == 3:
+            return True
+        if n <= 1 or n % 2 == 0:
+            return False
+        s = 0
+        r = n - 1
+        while r & 1 == 0:
+            s += 1
+            r //= 2
+        for _ in range(k):
+            a = random.randrange(2, n - 1)
+            x = pow(a, r, n)
+            if x != 1 and x != n - 1:
+                j = 1
+                while j < s and x != n - 1:
+                    x = pow(x, 2, n)
+                    if x == 1:
+                        return False
+                    j += 1
+                if x != n - 1:
+                    return False
+        return True
+
+    def find_coprime(self, phi_n: int) -> int:
+        while True:
+            e = random.randrange(2, phi_n)
+            if self.gcd(e, phi_n) == 1:
+                return e
+
+    def gcd(self, a: int, b: int) -> int:
+        while b != 0:
+            a, b = b, a % b
+        return a
+
+    def mod_inverse(self, a: int, m: int) -> int:
+        m0, x0, x1 = m, 0, 1
+        if m == 1:
+            return 0
+        while a > 1:
+            q = a // m
+            m, a = a % m, m
+            x0, x1 = x1 - q * x0, x0
+        if x1 < 0:
+            x1 += m0
+        return x1
 
     def get_public_key_bytes(self):
         """
         Convert RSA public key to bytes.
         """
         try:
-            public_key_bytes = self.public_key.public_bytes(
-                encoding=serialization.Encoding.DER,  # Format DER
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
+            e, n = self.public_key
+            e_bytes = e.to_bytes((e.bit_length() + 7) // 8, byteorder='big')
+            n_bytes = n.to_bytes((n.bit_length() + 7) // 8, byteorder='big')
+            public_key_bytes = e_bytes + n_bytes
             return public_key_bytes
         except Exception as e:
-            logger.error(f"Error during conversion RSA public-key to bytes")
+            logger.error(f"Error during conversion RSA public-key to bytes: {e}")
             return None
+        
 
-
-    def encrypt(self, original_data: np.array):
-        height, width, color = original_data.shape
-        logger.info("Encrypting with RSA")
-        try:
-            data_bytes = original_data.reshape(-1).tobytes()
-            max_block_size = (self.public_key.key_size // 8) - 2 * hashes.SHA256().digest_size - 2
-
-            # Ensure the length is a multiple of max_block_size
-            padding_length = (max_block_size - (len(data_bytes) % max_block_size)) % max_block_size
-            padded_data_bytes = data_bytes + bytes([0] * padding_length)
-
-            encrypted_data = bytearray()
-
-            for i in range(0, len(padded_data_bytes), max_block_size):
-                block = padded_data_bytes[i:i + max_block_size]
-                encrypted_block = self.public_key.encrypt(
-                    block,
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None
-                    )
-                )
-                encrypted_data.extend(encrypted_block)
-
-            encrypted_array = np.frombuffer(encrypted_data, dtype=np.uint8)
-
-            # Optionally reshape for visualization
-            encrypted_length = len(encrypted_array)
-            total_pixels = encrypted_length // color
-            new_width = int(math.sqrt(total_pixels))
-            new_height = math.ceil(total_pixels / new_width)
-            full_nr_of_pixels = new_width * new_height * color
-
-            self._encrypted = np.resize(encrypted_array[:full_nr_of_pixels], (new_height, new_width, color))
-
-            return self._encrypted, original_data.shape, padding_length, encrypted_array
-        except Exception as e:
-            logger.error(f"Error encrypting data with RSA: {e}")
-            return None
+    def encrypt(self,image_raw_data:np.array):
+        e, n = self.public_key
+        max_block_size = 255
+        data_splitted_blocks,shape = self.split_data(image_raw_data,max_block_size)
+        length = shape[0] * shape[1] * shape[2]
+        encrypted_data = bytearray()
+        for i in range(len(data_splitted_blocks)):
+            data = data_splitted_blocks[i].tobytes()
+            integer = int.from_bytes(data,'big')
+            decrypted_integer = pow(integer, e, n)
+            encrypted_data.extend(decrypted_integer.to_bytes(256,'big'))
+        int_table = np.frombuffer(encrypted_data,dtype=np.uint8)
+        encrypted = int_table[:length]
+        padded = int_table[length:]
+        return np.array(encrypted).reshape(shape),padded,int_table
+            
+    def decrypt(self,encrypted:np.array,_shape):
+        d, n = self.private_key
+        max_block_size = 256
+        data_splitted_blocks, shape = self.split_data(encrypted,max_block_size)
+        original_data = bytearray()
+        for i in range(len(data_splitted_blocks)):
+            data = data_splitted_blocks[i].tobytes()
+            integer = int.from_bytes(data,'big')
+            decrypted_integer = pow(integer, d, n)
+            original_data.extend(decrypted_integer.to_bytes(255,'big'))
+        int_table = np.frombuffer(original_data,dtype=np.uint8)
+        original = int_table[:-self.added_bytes]
+        res = original.reshape((_shape))
+        return res
 
 
 
-    def decrypt(self, encrypted_array: np.array, original_shape: tuple, padding_length: int) -> np.array:
-        height, width, color = original_shape
-        logger.info("Decrypting with RSA")
-        try:
-            block_size = self.private_key.key_size // 8
-
-            decrypted_data = bytearray()
-
-            for i in range(0, len(encrypted_array), block_size):
-                block = encrypted_array[i:i + block_size]
-                decrypted_block = self.private_key.decrypt(
-                    bytes(block),
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None
-                    )
-                )
-                decrypted_data.extend(decrypted_block)
-
-            # Remove padding
-            if padding_length > 0:
-                decrypted_data = decrypted_data[:-padding_length]
-
-            original_data = np.frombuffer(decrypted_data, dtype=np.uint8).reshape(original_shape)
-
-            return original_data
-        except Exception as e:
-            logger.error(f"Error decrypting data with RSA: {e}")
-            return None
-
-
-# Zakładając, że mamy self.private_key zdefiniowany w klasie
-
-
-    def split_data_2(self, data, max_chunk_size):
-        # Split data into chunks of max_chunk_size
-        return [data[i:i + max_chunk_size] for i in range(0, len(data), max_chunk_size)]
 
     def split_data(self,full_data: np.array, length_of_data_block: int = None) -> np.array:
         '''
@@ -161,7 +200,6 @@ class RSA:
             #we take the original shape and create 1D vector with data
             shape_tuple = full_data.shape
             full_data = np.reshape(full_data,-1)
-
             idx = 0
             data_blocks = []
 
@@ -180,7 +218,7 @@ class RSA:
                     data_blocks.append(list_sum)
                     idx += diff
             logger.info("Data succesfully splitted")
-            return np.array(data_blocks),shape_tuple
+            return np.array(data_blocks,dtype=np.uint8),shape_tuple
         except Exception as e:
             logger.error(f"Error - splitting data: {e}")
             return None, None
