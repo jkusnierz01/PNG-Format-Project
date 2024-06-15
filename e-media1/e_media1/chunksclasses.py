@@ -264,8 +264,11 @@ class Image:
             
 
     def encrytpRSA(self):
-        pass
-        # rsa = RSA()
+        rsa = RSA()
+        encrypted,shape,padding_lenght,encrypted_array = rsa.encrypt(self.rawIDATData)
+        self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted)
+        original_data = rsa.decrypt(encrypted_array,shape,padding_lenght)
+        self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=original_data)
         # encrypted, excesive = rsa.encrypt(self.rawIDATData)
         # self.save_image_using_pillow(encrypted,excesive,'rsa_encrypt.png', self.path_to_save)
         # data,excesive = self.readImage()

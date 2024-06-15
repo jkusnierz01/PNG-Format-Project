@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 import logging
 import png
+import math
 
 logger = logging.getLogger("loger")
 
@@ -21,6 +22,7 @@ class RSA:
     _encrypted: np.array = None
     _original: np.array = None
     added_bytes: int = None
+
 
     def __post_init__(self) -> None:
         """
@@ -57,111 +59,87 @@ class RSA:
             return None
 
 
-    #NIE DZIAŁA JESZCZE
-    # def encrypt_test(self,raw_original_data:np.array):
-    #     """
-    #     Encrypt image data with RSA
+    def encrypt(self, original_data: np.array):
+        height, width, color = original_data.shape
+        logger.info("Encrypting with RSA")
+        try:
+            data_bytes = original_data.reshape(-1).tobytes()
+            max_block_size = (self.public_key.key_size // 8) - 2 * hashes.SHA256().digest_size - 2
 
-    #     Args:
-    #         *raw_original_data -> whole image IDAT data after decompression and defiltration
+            # Ensure the length is a multiple of max_block_size
+            padding_length = (max_block_size - (len(data_bytes) % max_block_size)) % max_block_size
+            padded_data_bytes = data_bytes + bytes([0] * padding_length)
 
-    #     Returns:
-    #         *encrypted -> encrypted image data
-    #     """
+            encrypted_data = bytearray()
 
-    #     original_shape = raw_original_data.shape
-    #     # data = raw_original_data.tobytes()
-    #     # encrypted_data = self.encrypt(data)
-    #     encrypted_data = self.encrypt(raw_original_data)
+            for i in range(0, len(padded_data_bytes), max_block_size):
+                block = padded_data_bytes[i:i + max_block_size]
+                encrypted_block = self.public_key.encrypt(
+                    block,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+                encrypted_data.extend(encrypted_block)
 
-    #     encrypted_array = np.frombuffer(encrypted_data, dtype='uint8')
-    #     self._encrypted = np.reshape(encrypted_array, original_shape)
+            encrypted_array = np.frombuffer(encrypted_data, dtype=np.uint8)
 
-    #     # Display encrypted data as a byte stream (not reshaping to original shape)
-    #     # encrypted_array = np.frombuffer(encrypted_data, dtype='uint8')
+            # Optionally reshape for visualization
+            encrypted_length = len(encrypted_array)
+            total_pixels = encrypted_length // color
+            new_width = int(math.sqrt(total_pixels))
+            new_height = math.ceil(total_pixels / new_width)
+            full_nr_of_pixels = new_width * new_height * color
 
-    #     # This is just to demonstrate the encrypted byte stream visually
-    #     # plt.figure(figsize=(10, 2))
-    #     # plt.plot(encrypted_data, marker='o', linestyle='None')
-    #     # plt.title("Encrypted Data Byte Stream")
-    #     # logger.info("plotting...")
-    #     # plt.show()
+            self._encrypted = np.resize(encrypted_array[:full_nr_of_pixels], (new_height, new_width, color))
 
-    #     plt.imshow(self._encrypted, cmap='gray')  # Use 'cmap' parameter if the image is grayscale
-    #     plt.title("Encrypted Image")
-    #     plt.axis('off')  # Hide axis
-    #     plt.show()
-
-
-    # def encrypt(self, original_data: np.array):
-    #     logger.info("Encrypting with RSA")
-    #     print(original_data.shape)
-    #     max_chunk_size = 190
-    #     data,shape = self.split_data(original_data,max_chunk_size)
-    #     length = (shape[0] * shape[1] * shape[2])
-    #     bytes_data = data.tobytes()
-    #     print(len(bytes_data))
-    #     out_bytes = []
-    #     for i in range(data.shape[0]):
-    #         chunk = bytes_data[i:i+max_chunk_size]
-    #         # logger.info(f"Encrypting block {i}")
-    #         encrypted_chunk = self.public_key.encrypt(
-    #             chunk,
-    #             padding.OAEP(
-    #                 mgf=padding.MGF1(algorithm=hashes.SHA256()),
-    #                 algorithm=hashes.SHA256(),
-    #                 label=None
-    #             )
-    #         )
-    #         out_bytes.append(encrypted_chunk)
-    #     s = b''.join(out_bytes)
-    #     out_int = []
-    #     for i in range(len(s)):
-    #         out_int.append(s[i])
-    #     encrypted = out_int[:length]
-    #     excesive = np.array(out_int[length:]).tobytes()
-    #     d = np.array(encrypted).reshape(shape)
-    #     return d,excesive
+            return self._encrypted, original_data.shape, padding_length, encrypted_array
+        except Exception as e:
+            logger.error(f"Error encrypting data with RSA: {e}")
+            return None
 
 
-    # def decrypt(self, encrypted_data: np.array, excesive_data: bytes):
-    #     logger.info("Decrypting with RSA")
-    #     encrypted_chunk_size = self.private_key.key_size // 8  # Rozmiar w bajtach klucza RSA (256 bajtów dla klucza 2048-bitowego)
-    #     bytes_data = encrypted_data.tobytes() + excesive_data
 
-    #     decrypted_chunks = []
-    #     for i in range(0, len(bytes_data), encrypted_chunk_size):
-    #         chunk = bytes_data[i:i + encrypted_chunk_size]
-    #         if len(chunk) != encrypted_chunk_size:
-    #             logger.error(f"Invalid chunk size at index {i}")
-    #             raise ValueError(f"Invalid chunk size at index {i}")
-            
-    #         try:
-    #             decrypted_chunk = self.private_key.decrypt(
-    #                 chunk,
-    #                 padding.OAEP(
-    #                     mgf=padding.MGF1(algorithm=hashes.SHA256()),
-    #                     algorithm=hashes.SHA256(),
-    #                     label=None
-    #                 )
-    #             )
-    #             decrypted_chunks.append(decrypted_chunk)
-    #         except Exception as e:
-    #             logger.error(f"Decryption failed for chunk at index {i}: {e}")
-    #             raise ValueError(f"Decryption failed for chunk at index {i}")
+    def decrypt(self, encrypted_array: np.array, original_shape: tuple, padding_length: int) -> np.array:
+        height, width, color = original_shape
+        logger.info("Decrypting with RSA")
+        try:
+            block_size = self.private_key.key_size // 8
 
-    #     decrypted_data = b''.join(decrypted_chunks)
-    #     original_data = np.frombuffer(decrypted_data, dtype=np.uint8)
-    #     original_shape = (len(original_data) // np.prod(encrypted_data.shape[1:]),) + encrypted_data.shape[1:]
-    #     return original_data.reshape(original_shape)
+            decrypted_data = bytearray()
+
+            for i in range(0, len(encrypted_array), block_size):
+                block = encrypted_array[i:i + block_size]
+                decrypted_block = self.private_key.decrypt(
+                    bytes(block),
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+                decrypted_data.extend(decrypted_block)
+
+            # Remove padding
+            if padding_length > 0:
+                decrypted_data = decrypted_data[:-padding_length]
+
+            original_data = np.frombuffer(decrypted_data, dtype=np.uint8).reshape(original_shape)
+
+            return original_data
+        except Exception as e:
+            logger.error(f"Error decrypting data with RSA: {e}")
+            return None
 
 
 # Zakładając, że mamy self.private_key zdefiniowany w klasie
 
 
-    # def split_data_2(self, data, max_chunk_size):
-    #     # Split data into chunks of max_chunk_size
-    #     return [data[i:i + max_chunk_size] for i in range(0, len(data), max_chunk_size)]
+    def split_data_2(self, data, max_chunk_size):
+        # Split data into chunks of max_chunk_size
+        return [data[i:i + max_chunk_size] for i in range(0, len(data), max_chunk_size)]
 
     def split_data(self,full_data: np.array, length_of_data_block: int = None) -> np.array:
         '''
