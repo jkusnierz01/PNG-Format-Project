@@ -10,7 +10,9 @@ from e_media1.encrypt import ECB, CBC, RSA
 import png
 import os
 from pathlib import Path
-from PIL import Image as pilimg
+import sys
+from PIL import Image as ImagE
+import binascii
 
 
 logger = logging.getLogger("loger")
@@ -73,6 +75,49 @@ class CriticalChunks:
         Reconstructed = np.array(Reconstructed,dtype=np.uint8).reshape(height,width,bytes_per_pixel)
         return Reconstructed
     
+    def createIDAT(self, encrypted_data: np.array, max_chunk_size: int = 65524) -> List[IDATChunk]:
+        chunk_type = b'IDAT'
+        bytes_arr = bytearray()
+        encrypted_data = (encrypted_data - np.min(encrypted_data)) / (np.max(encrypted_data) - np.min(encrypted_data))
+        encrypted_data = (255 * encrypted_data).astype(dtype=np.uint8)
+
+        # d = len(encrypted_data) // 3
+        # height = int(np.sqrt(d))
+        # width = height
+        # f = plt.figure()
+        # g = encrypted_data[:height*width*3]
+        # s = g.reshape((height,width,3))
+        # plt.imshow(s)
+        # plt.show()
+        # print(encrypted_data)
+        for item in encrypted_data:
+            item = int(item)
+            byte_value = item.to_bytes(1, byteorder='big')
+            bytes_arr.extend(byte_value)
+            
+            # Debug: Wypisywanie konwertowanych wartości
+            # print(f"Integer: {item}, Byte: {byte_value}")
+            
+        bytes_structure = bytes(bytes_arr)
+        total_length = len(bytes_structure)
+        chunks = []
+        # Debug: Wypisywanie całej struktury bajtów
+        # print(f"Bytes structure length: {total_length}")
+        for start in range(0, total_length, max_chunk_size):
+            end = start + max_chunk_size
+            chunk_data = bytes_structure[start:end]
+            length = struct.pack("!I", len(chunk_data))
+            crc_data = chunk_type + chunk_data
+            new_crc = zlib.crc32(crc_data)
+            new_crc = struct.pack('>I', new_crc & 0xffffffff)
+            idat_chunk = IDATChunk(length, chunk_type, chunk_data, new_crc)
+            chunks.append(idat_chunk)
+
+        return chunks
+
+
+
+    
 
 
     def __str__(self) -> str:
@@ -118,7 +163,6 @@ class Image:
     criticalChunks: CriticalChunks
     ancillaryChunks: AncillaryChunks
     rawIDATData: np.array #IDAT after decompression and defiltering | SHAPE(height, width, pixel color depth)
-    excesive_iend_data: bytes = b''
     path_to_save: str
 
     def __init__(self, image_binary_data, save_path: str):
@@ -150,74 +194,10 @@ class Image:
                 continue
             if chunk.Type == b'IEND':
                 break
-        # if read_after_exif:
-        #     while True:
-        #         remaining_data = image_binary_data.read(1024)  # Read in chunks of 1024 bytes
-        #         if not remaining_data:
-        #             break
-        #         self.excesive_iend_data += remaining_data
         
         self.criticalChunks = CriticalChunks(CriticalChunkList)
         self.ancillaryChunks = AncillaryChunks(AncillaryChunkList)
         self.rawIDATData = self.criticalChunks.reconstructIDATData()
-
-
-
-    # def save_image_using_pillow(self, data, excesive_data:bytes, filename, path):
-    #     logger.info(f"Saving output image: {filename}")
-    #     try:
-    #         height, width, color = data.shape
-
-    #         data_normalized = (data-np.min(data))/(np.max(data) - np.min(data))
-
-    #         data_rescaled = np.array(255*data_normalized,dtype='uint8')
-
-    #         # Determine the image mode based on the color channels
-    #         if color == 1:
-    #             mode = "L"  # Grayscale
-    #         elif color == 2:
-    #             mode = "LA"  # Grayscale with alpha
-    #         elif color == 3:
-    #             mode = "RGB"  # RGB
-    #         else:
-    #             mode = "RGBA"  # RGB with alpha
-
-    #         # Create a PIL Image from the data
-    #         image = pilimg.fromarray(data_rescaled, mode=mode)
-
-    #         if not os.path.exists(path):
-    #             os.mkdir(path)
-    #         full_path = Path(path) / filename
-
-
-    #         output_io = io.BytesIO()
-    #         image.save(output_io, format="PNG")
-    #         png_data = output_io.getvalue()
-
-    #         iend_index = png_data.rfind(b'\x49\x45\x4E\x44\xAE\x42\x60\x82')
-    #         if iend_index == -1:
-    #             raise ValueError("IEND chunk not found in PNG data")
-
-    #         # Split the data at the end of the IEND chunk
-    #         end_of_iend = iend_index + 8
-    #         png_data_with_hidden_bytes = png_data[:end_of_iend] + excesive_data + png_data[end_of_iend:]
-
-    #         # Append the excessive bytes after the IEND chunk
-    #         png_data_with_excessive_bytes = png_data_with_hidden_bytes
-
-    #         # Write the final PNG data to the output file
-    #         with open(full_path, 'wb') as f:
-    #             f.write(png_data_with_excessive_bytes)
-
-    #         # Check if the folder exists, if not, create directory
-            
-
-    #         # Save the image
-    #         # image.save(full_path)
-    #         logger.info(f"Image saved successfully: {full_path}")
-    #     except Exception as e:
-    #         logger.error(f"Error saving output image: {filename}, Error: {e}")
-
 
 
     def saveImage(self,path:str, filename:str,data:np.array) -> None:
@@ -250,7 +230,6 @@ class Image:
                 grayscale = False
                 alpha = True
             writer = png.Writer(width,height,greyscale=grayscale,alpha=alpha)
-
             #we check if folder exist, if not we crate directory
             if not os.path.exists(path):
                 os.mkdir(path)
@@ -263,46 +242,34 @@ class Image:
             logger.error(f"Saving output image: {filename}")
             
 
-    def encrytpRSA(self):
-        rsa = RSA()
-        encrypted_int_reshaped, padded, int_data = rsa.encrypt(self.rawIDATData)
-        self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted_int_reshaped)
-        decrypted = rsa.decrypt(int_data,self.rawIDATData.shape)
-        self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=decrypted)
-        # original_data = rsa.decrypt(encrypted_array,shape,padding_lenght)
-        # self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=original_data)
-        # encrypted, excesive = rsa.encrypt(self.rawIDATData)
-        # self.save_image_using_pillow(encrypted,excesive,'rsa_encrypt.png', self.path_to_save)
-        # data,excesive = self.readImage()
-        # d = rsa.decrypt(data,excesive)
-        # f = plt.figure()
-        # plt.imshow(f)
-        # plt.show()
-        
+    def encrytpRSA(self,use_library_funct:bool = False):
+        try:
+            rsa = RSA()
+            if use_library_funct:
+                encrypted,shape = rsa.encrypt_with_library(self.rawIDATData)
+                self.saveImage(self.path_to_save, filename='rsa_encrypt_library.png',data=encrypted)
+            encrypted_int_reshaped, padded, int_data = rsa.encrypt(self.rawIDATData)
+            self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted_int_reshaped)
+            decrypted = rsa.decrypt(int_data,self.rawIDATData.shape)
+            self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=decrypted)
+        except Exception as e:
+            logger.error(f"Error in encryptRSA function: {e}")
+    
 
-                
-
-
-
-        # try:
-        #     rsa = RSA()
-        #     encrypted = rsa.encrypt(self.rawIDATData)
-        #     self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted)
-        #     decrypted = rsa.decrypt()
-        #     self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=decrypted)
-        # except Exception as e:
-        #     logger.error(f"Error in encryptRSA function: {e}")
-
-
-
-
-    def encryptECB(self) -> None:
+    def encryptECB(self,encrypt_compressed:bool = False) -> None:
         try:
             ecb = ECB()
-            encrypted = ecb.encrypt(self.rawIDATData)
-            self.saveImage(self.path_to_save, filename='ecb_encrypt.png',data=encrypted)
-            decrypted = ecb.decrypt()
-            self.saveImage(self.path_to_save, filename='ecb_decrypt.png',data=decrypted)
+            if encrypt_compressed:
+                data = self.criticalChunks.retrieveAllIDATData()
+                int_data = np.frombuffer(data,dtype=np.uint8)
+                encrypted_compressed = ecb.encrypt_compressed(int_data)
+                # Debug: Sprawdzenie danych przed zapisem
+                self.save_without_compression(encrypted_compressed)
+            else:
+                encrypted = ecb.encrypt(self.rawIDATData)
+                self.saveImage(self.path_to_save, filename='ecb_encrypt.png',data=encrypted)
+                decrypted = ecb.decrypt()
+                self.saveImage(self.path_to_save, filename='ecb_decrypt.png',data=decrypted)
         except Exception as e:
             logger.error(f"Error in encryptECB function: {e}")
 
@@ -323,11 +290,24 @@ class Image:
         if exclude_ancillary is False:
             img_binary_file.write(self.ancillaryChunks.returnChunkData())
         if self.criticalChunks.PLTE is not None:
-                img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
+            img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
         img_binary_file.write(self.criticalChunks.returnIDAT())
         img_binary_file.write(self.criticalChunks.IEND.ReturnData())
         return img_binary_file
-        
+    
+    def save_without_compression(self, encrypted_data: np.array):
+        signature = b'\x89PNG\r\n\x1a\n'
+        with open("output.png",'wb') as output_file:
+            output_file.write(signature)
+            output_file.write(self.criticalChunks.IHDR.ReturnData())
+            if self.criticalChunks.PLTE is not None:
+                output_file.write(self.criticalChunks.PLTE.ReturnData())
+            self.criticalChunks.IDAT = self.criticalChunks.createIDAT(encrypted_data)
+            output_file.write(self.criticalChunks.returnIDAT())
+            output_file.write(self.criticalChunks.IEND.ReturnData())
+
+            
+            
 
     def displayChunks(self):
         print(str(self.criticalChunks))

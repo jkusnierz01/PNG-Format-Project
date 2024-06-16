@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import numpy as np
 import os
 from typing import List
@@ -8,6 +7,7 @@ import sys
 import matplotlib.pyplot as plt
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
+from dataclasses import dataclass
 import logging
 import random
 
@@ -145,37 +145,126 @@ class RSA:
             logger.error(f"Error during conversion RSA public-key to bytes: {e}")
             return None
         
+    def get_public_key_cryptography(self):
+        """
+        Convert public key to `cryptography` RSA public key.
+        """
+        try:
+            e, n = self.public_key
+            public_numbers = rsa.RSAPublicNumbers(e, n)
+            public_key = public_numbers.public_key()
+            return public_key
+        except Exception as e:
+            logger.error(f"Error converting public key to cryptography format: {e}")
+            return None
+        
+    def get_private_key_cryptography(self):
+        """
+        Convert private key to `cryptography` RSA private key.
+        """
+        try:
+            d, n = self.private_key
+            e, _ = self.public_key
+            public_numbers = rsa.RSAPublicNumbers(e, n)
+            private_numbers = rsa.RSAPrivateNumbers(
+                p=1,  # Placeholder, actual values needed for full private key
+                q=1,  # Placeholder, actual values needed for full private key
+                d=d,
+                dmp1=1,  # Placeholder
+                dmq1=1,  # Placeholder
+                iqmp=1,  # Placeholder
+                public_numbers=public_numbers
+            )
+            private_key = private_numbers.private_key()
+            return private_key
+        except Exception as e:
+            logger.error(f"Error converting private key to cryptography format: {e}")
+            return None
+        
 
     def encrypt(self,image_raw_data:np.array):
-        e, n = self.public_key
-        max_block_size = 255
-        data_splitted_blocks,shape = self.split_data(image_raw_data,max_block_size)
-        length = shape[0] * shape[1] * shape[2]
+        logger.info("! Starting RSA encryption..")
+        try:
+            e, n = self.public_key
+            max_block_size = 255
+            data_splitted_blocks,shape = self.split_data(image_raw_data,max_block_size)
+            length = shape[0] * shape[1] * shape[2]
+            encrypted_data = bytearray()
+            for i in range(len(data_splitted_blocks)):
+                data = data_splitted_blocks[i].tobytes()
+                integer = int.from_bytes(data,'big')
+                decrypted_integer = pow(integer, e, n)
+                encrypted_data.extend(decrypted_integer.to_bytes(256,'big'))
+            int_table = np.frombuffer(encrypted_data,dtype=np.uint8)
+            encrypted = int_table[:length]
+            padded = int_table[length:]
+            return np.array(encrypted).reshape(shape),padded,int_table
+        except Exception as e:
+            logger.error(f"RSA encryption failed: {e}")
+                
+    def decrypt(self,encrypted:np.array,_shape):    
+        logger.info("! Startin RSA decryption..")
+        try:
+            d, n = self.private_key
+            max_block_size = 256
+            data_splitted_blocks, shape = self.split_data(encrypted,max_block_size)
+            original_data = bytearray()
+            for i in range(len(data_splitted_blocks)):
+                data = data_splitted_blocks[i].tobytes()
+                integer = int.from_bytes(data,'big')
+                decrypted_integer = pow(integer, d, n)
+                original_data.extend(decrypted_integer.to_bytes(255,'big'))
+            int_table = np.frombuffer(original_data,dtype=np.uint8)
+            original = int_table[:-self.added_bytes]
+            res = original.reshape((_shape))
+            return res
+        except Exception as e:
+            logger.error(f"RSA decryption failed: {e}")
+
+
+    def encrypt_with_library(self, image_raw_data: np.array) -> bytes:
+        """
+        Encrypt data using `cryptography` library.
+        """
+        height, width, bpp = image_raw_data.shape
+        data = image_raw_data.tobytes()
+        length = len(data)
+        chunk_size = 190  # This allows room for padding
+
+        public_key = self.get_public_key_cryptography()
+        if public_key is None:
+            raise ValueError("Public key not available for encryption")
+
         encrypted_data = bytearray()
-        for i in range(len(data_splitted_blocks)):
-            data = data_splitted_blocks[i].tobytes()
-            integer = int.from_bytes(data,'big')
-            decrypted_integer = pow(integer, e, n)
-            encrypted_data.extend(decrypted_integer.to_bytes(256,'big'))
-        int_table = np.frombuffer(encrypted_data,dtype=np.uint8)
-        encrypted = int_table[:length]
-        padded = int_table[length:]
-        return np.array(encrypted).reshape(shape),padded,int_table
-            
-    def decrypt(self,encrypted:np.array,_shape):
-        d, n = self.private_key
-        max_block_size = 256
-        data_splitted_blocks, shape = self.split_data(encrypted,max_block_size)
-        original_data = bytearray()
-        for i in range(len(data_splitted_blocks)):
-            data = data_splitted_blocks[i].tobytes()
-            integer = int.from_bytes(data,'big')
-            decrypted_integer = pow(integer, d, n)
-            original_data.extend(decrypted_integer.to_bytes(255,'big'))
-        int_table = np.frombuffer(original_data,dtype=np.uint8)
-        original = int_table[:-self.added_bytes]
-        res = original.reshape((_shape))
-        return res
+        for i in range(0, len(data), chunk_size):
+            chunk = data[i:i + chunk_size]
+            encrypted_chunk = public_key.encrypt(
+                chunk,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            encrypted_data.extend(encrypted_chunk)
+        
+        bytes_data = bytes(encrypted_data)
+        int_data = np.frombuffer(bytes_data, dtype=np.uint8)
+        total_pixels = len(int_data) // bpp
+
+        new_height = int(np.sqrt(total_pixels))
+        new_width = new_height
+        size = new_height * new_width * bpp
+        final_data = int_data[:size]
+
+        
+        shape = (new_height, new_width, bpp)
+        arr = final_data.reshape(shape)
+        return arr, shape
+
+
+
+
 
 
 
@@ -261,7 +350,7 @@ class ECB(RSA):
 
             return data_after_operation
         except Exception as e:
-            logger.error(f"Error - CBC encryption/decryption: {e}")
+            logger.error(f"Error - ECB encryption/decryption: {e}")
             return None
     
     def encrypt(self,original_data:np.array) -> np.array:
@@ -281,6 +370,29 @@ class ECB(RSA):
         self._original = self.encrypt_and_decrypt_algorithm(self._encrypted)
         logger.info("Decryption with ECB algorithm successful")
         return self._original
+    
+    def encrypt_compressed(self, compressed_data:np.array):
+        logger.info("Starting encryption on compressed IDAT data with ECB algorithm")
+        try:
+            public_key_bytes = self.get_public_key_bytes()
+
+            splitted_data, shape = self.split_data(compressed_data)
+            data_after_operation = []
+            # for every byte in data block we perform XOR operation with corresponding byte in key.
+            for block in splitted_data:
+                for iter in range(len(block)):
+                    data_after_operation.append(block[iter] ^ public_key_bytes[iter])
+                    # print(data_after_operation)
+            # if we have additional encrypted data we get rid of it for now - we dont need it to recreate image
+            if self.added_bytes is not None:
+                data_after_operation = data_after_operation[:-self.added_bytes]
+            self._encrypted = np.array(data_after_operation,dtype=np.uint8)
+            logger.info("Encryption on compressed IDAT data with ECB algorithm successful")
+            return self._encrypted
+        except Exception as e:
+            logger.error(f"Error - ECB encryption/decryption: {e}")
+            return None
+
 
 
 class CBC(RSA):
