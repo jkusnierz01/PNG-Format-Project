@@ -75,37 +75,15 @@ class CriticalChunks:
         Reconstructed = np.array(Reconstructed,dtype=np.uint8).reshape(height,width,bytes_per_pixel)
         return Reconstructed
     
-    def createIDAT(self, encrypted_data: np.array, max_chunk_size: int = 65524) -> List[IDATChunk]:
-        chunk_type = b'IDAT'
-        bytes_arr = bytearray()
-        encrypted_data = (encrypted_data - np.min(encrypted_data)) / (np.max(encrypted_data) - np.min(encrypted_data))
-        encrypted_data = (255 * encrypted_data).astype(dtype=np.uint8)
-
-        # d = len(encrypted_data) // 3
-        # height = int(np.sqrt(d))
-        # width = height
-        # f = plt.figure()
-        # g = encrypted_data[:height*width*3]
-        # s = g.reshape((height,width,3))
-        # plt.imshow(s)
-        # plt.show()
-        # print(encrypted_data)
-        for item in encrypted_data:
-            item = int(item)
-            byte_value = item.to_bytes(1, byteorder='big')
-            bytes_arr.extend(byte_value)
-            
-            # Debug: Wypisywanie konwertowanych wartości
-            # print(f"Integer: {item}, Byte: {byte_value}")
-            
-        bytes_structure = bytes(bytes_arr)
-        total_length = len(bytes_structure)
+    def createIDAT(self, encrypted_data: bytes, max_chunk_size: int = 65524) -> List[IDATChunk]:
+        chunk_type = b'IDAT'     
+        total_length = len(encrypted_data)
         chunks = []
         # Debug: Wypisywanie całej struktury bajtów
         # print(f"Bytes structure length: {total_length}")
         for start in range(0, total_length, max_chunk_size):
             end = start + max_chunk_size
-            chunk_data = bytes_structure[start:end]
+            chunk_data = encrypted_data[start:end]
             length = struct.pack("!I", len(chunk_data))
             crc_data = chunk_type + chunk_data
             new_crc = zlib.crc32(crc_data)
@@ -240,45 +218,34 @@ class Image:
                 writer.write(out_file,encrypted_list)
         except Exception as e:
             logger.error(f"Saving output image: {filename}")
-            
-
-    def encrytpRSA(self,use_library_funct:bool = False):
-        try:
-            rsa = RSA()
-            if use_library_funct:
-                encrypted,shape = rsa.encrypt_with_library(self.rawIDATData)
-                self.saveImage(self.path_to_save, filename='rsa_encrypt_library.png',data=encrypted)
-            encrypted_int_reshaped, padded, int_data = rsa.encrypt(self.rawIDATData)
-            self.saveImage(self.path_to_save, filename='rsa_encrypt.png',data=encrypted_int_reshaped)
-            decrypted = rsa.decrypt(int_data,self.rawIDATData.shape)
-            self.saveImage(self.path_to_save, filename='rsa_decrypt.png',data=decrypted)
-        except Exception as e:
-            logger.error(f"Error in encryptRSA function: {e}")
+        
     
 
-    def encryptECB(self,encrypt_compressed:bool = False) -> None:
+    def encryptECB(self,encrypt_compressed:bool = False, library_func:bool = False) -> None:
         try:
-            ecb = ECB()
+            ecb = ECB(image_shape=self.rawIDATData.shape)
             if encrypt_compressed:
-                data = self.criticalChunks.retrieveAllIDATData()
-                int_data = np.frombuffer(data,dtype=np.uint8)
-                encrypted_compressed = ecb.encrypt_compressed(int_data)
-                # Debug: Sprawdzenie danych przed zapisem
-                self.save_without_compression(encrypted_compressed)
+                bytes_IDAT_data = self.criticalChunks.retrieveAllIDATData()
+                int_IDAT_data = np.frombuffer(bytes_IDAT_data,dtype=np.uint8)
+                encrypted_compressed, padding = ecb.encrypt(int_IDAT_data, True)
+                self.save_without_decompression(encrypted_compressed, padding)
             else:
-                encrypted = ecb.encrypt(self.rawIDATData)
+                encrypted, padded, int_t = ecb.encrypt(self.rawIDATData)
                 self.saveImage(self.path_to_save, filename='ecb_encrypt.png',data=encrypted)
-                decrypted = ecb.decrypt()
+                decrypted = ecb.decrypt(int_t)
                 self.saveImage(self.path_to_save, filename='ecb_decrypt.png',data=decrypted)
+            if library_func:
+                encrypted,shape = ecb.encrypt_with_library(self.rawIDATData)
+                self.saveImage(self.path_to_save, filename='ecb_encrypt_library.png',data=encrypted)
         except Exception as e:
             logger.error(f"Error in encryptECB function: {e}")
 
     def encryptCBC(self):
         try:
             cbc = CBC()
-            encrypted = cbc.encrypt(self.rawIDATData)
+            encrypted,padded,int_data = cbc.encrypt(self.rawIDATData)
             self.saveImage(self.path_to_save, filename='cbc_encrypt.png', data=encrypted)
-            decrypted = cbc.decrypt()
+            decrypted = cbc.decrypt(int_data)
             self.saveImage(self.path_to_save, filename='cbc_decrypt.png', data=decrypted)
         except Exception as e:
             logger.error(f"Error in encryptCBC function: {e}")
@@ -295,16 +262,27 @@ class Image:
         img_binary_file.write(self.criticalChunks.IEND.ReturnData())
         return img_binary_file
     
-    def save_without_compression(self, encrypted_data: np.array):
-        signature = b'\x89PNG\r\n\x1a\n'
-        with open("output.png",'wb') as output_file:
-            output_file.write(signature)
-            output_file.write(self.criticalChunks.IHDR.ReturnData())
-            if self.criticalChunks.PLTE is not None:
-                output_file.write(self.criticalChunks.PLTE.ReturnData())
-            self.criticalChunks.IDAT = self.criticalChunks.createIDAT(encrypted_data)
-            output_file.write(self.criticalChunks.returnIDAT())
-            output_file.write(self.criticalChunks.IEND.ReturnData())
+    def save_without_decompression(self, encrypted_data: np.array, padding_to_be_save_after_IEND:np.array = None):
+        logger.info("Saving encrypted Image data without decompression")
+        try:
+            signature = b'\x89PNG\r\n\x1a\n'
+            with open("../output_images/without_decompression.png",'wb') as output_file:
+                output_file.write(signature)
+                output_file.write(self.criticalChunks.IHDR.ReturnData())
+                if self.criticalChunks.PLTE is not None:
+                    output_file.write(self.criticalChunks.PLTE.ReturnData())
+                self.criticalChunks.IDAT = self.criticalChunks.createIDAT(encrypted_data)
+                output_file.write(self.criticalChunks.returnIDAT())
+                output_file.write(self.criticalChunks.IEND.ReturnData())
+                if padding_to_be_save_after_IEND is not None:
+                    custom_type = b'cnKS'  # Custom chunk type, 4 bytes, must be uppercase
+                    custom_data_bytes = padding_to_be_save_after_IEND  # Your custom data
+                    custom_length = struct.pack('>I', len(custom_data_bytes))  # Length of the data
+                    custom_crc = struct.pack('>I', zlib.crc32(custom_type + custom_data_bytes) & 0xffffffff)  # CRC
+                    chunk = Chunk(custom_length,custom_type,custom_data_bytes,custom_crc)
+                    output_file.write(chunk.ReturnData())
+        except Exception as e:
+            logger.error(f"Saving encrypted Image data without decompression FAILED")
 
             
             
