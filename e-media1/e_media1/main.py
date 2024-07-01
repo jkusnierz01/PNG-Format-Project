@@ -17,22 +17,9 @@ parser.add_argument('-r','--removeAll', action='store_true', required=False, des
 parser.add_argument('-e', '--ecbencrypt', action='store_true',required=False,dest ='ECBencrypt',help="Encrypt Image with ECB algorithm")
 parser.add_argument('-c', '--cbcencrypt', action='store_true',required=False,dest ='CBCencrypt',help="Encrypt Image with CBC algorithm")
 parser.add_argument('-compressed', action='store_true', required=False, dest='encryptcompressed',help='Encrypt Compressed Image Data')
-
-
 args = parser.parse_args()
 
 
-
-
-
-def image_plot(encrypted:Image):
-    f = plt.figure()
-    plt.imshow(encrypted)
-    # plt.show()
-    height, width, depth = encrypted.shape
-    encrypted = encrypted.reshape((height, width * depth))
-    w = png.Writer(width, height, greyscale=False, alpha=True)
-    return w
 
 def main():
     #setting up logger
@@ -59,9 +46,9 @@ def main():
                 # image.displayImageData()
                 # createFourierPlots(grayscale_image)
                 if(args.ECBencrypt):
-                    image.encryptECB(encrypt_compressed=args.encryptcompressed, library_func=True)
+                    image.encrypt_image_using_ecb(encrypt_compressed=args.encryptcompressed, library_func=True)
                 if(args.CBCencrypt):
-                    image.encryptCBC()
+                    image.encrypt_image_using_cbc()
                 # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
                 # with open(save_path+"/restored.png",'wb') as out_image:
                 #     out_image = image.restoreImage(out_image, signature, args.remove_all)

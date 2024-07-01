@@ -27,39 +27,6 @@ class RSA:
     decrypt_max_block_size: int = 256
     image_shape: tuple = field(default_factory=tuple)
 
-   # def __post_init__(self) -> None:
-    #     """
-    #     Generate RSA key-pairs upon initialization.
-    #     """
-    #     logger.info("Generating RSA key-pairs..")
-    #     try:
-    #         self.private_key = rsa.generate_private_key(public_exponent=65537,key_size=2048)
-    #         self.public_key = self.private_key.public_key()
-    #     except Exception as e:
-    #         logger.error(f"Error generating RSA key-pairs: {e}")
-    #     """
-    #     Possible alternative:
-    #     """
-    #     # try:
-    #     #     # Generate RSA key pair
-    #     #     self.private_key, self.public_key = rsa.newkeys(2048)
-    #     # except rsa.pkcs1.CryptoError as e:
-    #     #     logger.error(f"Error generating RSA key-pairs: {e}")
-
-
-    # def get_public_key_bytes(self):
-    #     """
-    #     Convert RSA public key to bytes.
-    #     """
-    #     try:
-    #         public_key_bytes = self.public_key.public_bytes(
-    #             encoding=serialization.Encoding.DER,  # Format DER
-    #             format=serialization.PublicFormat.SubjectPublicKeyInfo
-    #         )
-    #         return public_key_bytes
-    #     except Exception as e:
-    #         logger.error(f"Error during conversion RSA public-key to bytes")
-    #         return None
 
     def __post_init__(self) -> None:
         """
