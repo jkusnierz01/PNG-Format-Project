@@ -1,15 +1,11 @@
 import numpy as np
-import os
-from typing import List
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
-import sys
-import matplotlib.pyplot as plt
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from dataclasses import dataclass,field
 import logging
 import random
+from typing import Tuple, List
 
 
 logger = logging.getLogger("loger")
@@ -17,6 +13,7 @@ logger = logging.getLogger("loger")
 
 @dataclass
 class RSA:
+    '''Base class for CBC and ECB encryption with RSA algorithm'''
     public_key: bytes = None
     private_key: bytes = None
     _encrypted: np.array = None
@@ -202,7 +199,19 @@ class ECB(RSA):
         '''
         return super().__post_init__()
     
-    def encrypt(self,image_raw_data:np.array, encrypt_compressed:bool = False):
+    def encrypt(self,image_raw_data:np.array) -> Tuple(np.array, List, List):
+        '''
+        ECB encryption algoritm splits data into blocks of size 255 bytes. Each block is encrypted by RSA private key and as result we get block of 256 bytes.
+        We take 255 bytes to keep original shape and remaining bytes are stored in auxiliary variable "padded"
+
+
+        Args:
+            * image_raw_data -> np.array: original image data after decompression and filtering out.
+        Return:
+            * encrypted -> np.array: array containing encrypted data with original image shape
+            * padded -> List: array containing remaing encrypted bytes which are needed to decrypt image
+            * int_table ->List: array containing all encrypted image data in int types
+        '''
         logger.info("Starting ECB encryption...")
         try:
             e, n = self.public_key
@@ -220,14 +229,21 @@ class ECB(RSA):
             int_table = np.frombuffer(encrypted_data,dtype=np.uint8)
             encrypted = int_table[:length]
             padded = int_table[length:]
-            if encrypt_compressed:
-                return encrypted_data[:length], encrypted_data[length:]
             return np.array(encrypted).reshape(self.image_shape),padded,int_table
         except Exception as e:
             logger.error(f"ECB encryption failed: {e}")
 
         
     def decrypt(self,encrypted:np.array):    
+        '''
+        ECB decryption algorithm works the same as encryption mechanism but it makes use of RSA public key to decode data. Block of data also conatins 256 bytes.
+        It is needed to get 255 bytes which is reverse to encryption mechanism.
+
+        Args:
+            * encrypted -> np.array: image data after encryption with ECB algorithm
+        Return:
+            * image_original_data -> np.array: original image data after decryption
+        '''
         logger.info("Startin ECB decryption...")
         try:
             d, n = self.private_key
@@ -240,21 +256,22 @@ class ECB(RSA):
                 original_data.extend(decrypted_integer.to_bytes(self.encrypt_max_block_size,'big'))
             int_table = np.frombuffer(original_data,dtype=np.uint8)
             original = int_table[:-self.added_bytes]
-            res = original.reshape(self.image_shape)
-            return res
+            image_original_data = original.reshape(self.image_shape)
+            return image_original_data
         except Exception as e:
             logger.error(f"ECB decryption failed: {e}")
 
     
-    def encrypt_with_library(self, image_raw_data: np.array) -> bytes:
+    def encrypt_with_library(self, image_raw_data: np.array) -> Tuple():
         """
-        Encrypt data using `cryptography` library.
+        Encrypt data using RSA keys and `cryptography` library.
 
         Args:
             *image_raw_data -> np.array: whole image IDAT data after decompression and defiltration
 
         Return:
-
+            * arr -> List: array with encrypted image data
+            * shape -> Tuple: shape of original image
         """
         height, width, bpp = self.image_shape
         data = image_raw_data.tobytes()
@@ -304,6 +321,20 @@ class CBC(RSA):
         return super().__post_init__()
     
     def encrypt(self,image_raw_data:np.array):
+        '''
+        CBC encryption algoritm splits data into blocks of size 255 bytes. 
+        CBC algorithm uses addidional Vector (which at first is generated but later previous encoded block of data is used).
+        Fistly we encode block of data with Vector by XOR operation between them. Then this encoded block is futher encrypted with RSA private key as in ECB.
+        As result we get block of 256 bytes.
+        We take 255 bytes to keep original shape and remaining bytes are stored in auxiliary variable "padded"
+
+        Args:
+            * image_raw_data -> np.array: original image data after decompression and filtering out.
+        Return:
+            * encrypted -> np.array: array containing encrypted data with original image shape
+            * padded -> List: array containing remaing encrypted bytes which are needed to decrypt image
+            * int_table ->List: array containing all encrypted image data in int types
+        '''
         logger.info("Starting CBC encryption...")
         try:
             e, n = self.public_key
@@ -327,7 +358,17 @@ class CBC(RSA):
             logger.error(f"CBC encryption failed: {e}")
 
 
-    def decrypt(self, encrypted:np.array, _shape):
+    def decrypt(self, encrypted:np.array):
+        '''
+        CBC decryption algorithm uses reverse operations in comparistion to encryption mechanism. It makes use of RSA public key to decode data.
+        Block of data contains 256 bytes.
+        It is needed to get 255 bytes which is reverse to encryption mechanism.
+
+        Args:
+            * encrypted -> np.array: image data after encryption with ECB algorithm
+        Return:
+            * image_original_data -> np.array: original image data after decryption
+        '''
         logger.info("Startin CBC decryption...")
         try:
             d, n = self.private_key
@@ -345,7 +386,7 @@ class CBC(RSA):
                 iv = np.frombuffer(data, dtype=np.uint8)
             int_table = np.frombuffer(original_data,dtype=np.uint8)
             original = int_table[:-self.added_bytes]
-            res = original.reshape((_shape))
-            return res
+            image_original_data = original.reshape((self.image_shape))
+            return image_original_data
         except Exception as e:
             logger.error(f"ECB decryption failed: {e}")

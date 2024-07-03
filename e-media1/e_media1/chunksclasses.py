@@ -2,17 +2,15 @@ from dataclasses import dataclass, field
 from typing import List
 import logging
 from e_media1.basechunks import *
+from e_media1.filtering_methods import ReconstructingMethods
+from e_media1.encrypt import ECB, CBC
+from e_media1.additional_data import *
+import numpy as np
+import png
 import zlib
 import logging
-from e_media1.filtering_methods import ReconstructingMethods
-import numpy as np
-from e_media1.encrypt import ECB, CBC, RSA
-import png
 import os
 from pathlib import Path
-import sys
-from PIL import Image as ImagE
-import binascii
 
 
 logger = logging.getLogger("loger")
@@ -203,6 +201,29 @@ class Image:
         self.ancillaryChunks = AncillaryChunks(AncillaryChunkList)
         self.rawIDATData = self.criticalChunks.reconstruct_IDAT_data()
 
+    def recreate_png_with_chunks(self, img_binary_file:bytes, exclude_ancillary:bool) -> bytes:
+        '''
+        Function used to create PNG image with both Critical and Ancillary chunks or only with Critical chunks
+
+        Args:
+            *img_binary_file -> bytes: stream of bytes where PNG data will be stored
+            *exclude_ancillary -> bool: flag used to determine whether ancillary chunks will be saved or not
+        
+        Return:
+            * img_binary_file -> bytes: stream of bytes where PNG data is stored
+        '''
+        
+        img_binary_file.write(SIGNATURE)
+        img_binary_file.write(self.criticalChunks.IHDR.ReturnData())
+        if exclude_ancillary is False:
+            img_binary_file.write(self.ancillaryChunks.return_chunk_data())
+        if self.criticalChunks.PLTE is not None:
+            img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
+        img_binary_file.write(self.criticalChunks.return_whole_IDAT())
+        img_binary_file.write(self.criticalChunks.IEND.ReturnData())
+        return img_binary_file
+
+
 
     def saveImage(self,path:str, filename:str,data:np.array) -> None:
         '''
@@ -247,7 +268,7 @@ class Image:
         
     
 
-    def encrypt_image_using_ecb(self,encrypt_compressed:bool = False, library_func:bool = False) -> None:
+    def encrypt_image_using_ecb(self, library_func:bool = False) -> None:
         '''
         Encrypt image data with ECB algorithm
 
@@ -260,16 +281,10 @@ class Image:
         '''
         try:
             ecb = ECB(image_shape=self.rawIDATData.shape)
-            if encrypt_compressed:
-                bytes_IDAT_data = self.criticalChunks.return_only_IDAT_data()
-                int_IDAT_data = np.frombuffer(bytes_IDAT_data,dtype=np.uint8)
-                encrypted_compressed, padding = ecb.encrypt(int_IDAT_data, True)
-                self.save_without_decompression(encrypted_compressed, padding)
-            else:
-                encrypted, padded, int_t = ecb.encrypt(self.rawIDATData)
-                self.saveImage(self.path_to_save, filename='ecb_encrypt.png',data=encrypted)
-                decrypted = ecb.decrypt(int_t)
-                self.saveImage(self.path_to_save, filename='ecb_decrypt.png',data=decrypted)
+            encrypted, _, int_t = ecb.encrypt(self.rawIDATData)
+            self.saveImage(self.path_to_save, filename='ecb_encrypt.png',data=encrypted)
+            decrypted = ecb.decrypt(int_t)
+            self.saveImage(self.path_to_save, filename='ecb_decrypt.png',data=decrypted)
             if library_func:
                 encrypted,shape = ecb.encrypt_with_library(self.rawIDATData)
                 self.saveImage(self.path_to_save, filename='ecb_encrypt_library.png',data=encrypted)
@@ -277,9 +292,18 @@ class Image:
             logger.error(f"Error in encrypt_image_using_ecb function: {e}")
 
     def encrypt_image_using_cbc(self):
+        '''
+        Encrypt image data with CBC algorithm
+
+        Args:
+            *None
+        
+        Return:
+            *None
+        '''
         try:
             cbc = CBC()
-            encrypted,padded,int_data = cbc.encrypt(self.rawIDATData)
+            encrypted,_,int_data = cbc.encrypt(self.rawIDATData)
             self.saveImage(self.path_to_save, filename='cbc_encrypt.png', data=encrypted)
             decrypted = cbc.decrypt(int_data)
             self.saveImage(self.path_to_save, filename='cbc_decrypt.png', data=decrypted)
@@ -287,57 +311,19 @@ class Image:
             logger.error(f"Error in encrypt_image_using_cbc function: {e}")
 
 
-    def restoreImage(self, img_binary_file:bytes, signature:bytes, exclude_ancillary:bool, replace_idat:np.array = None):
-        img_binary_file.write(signature)
-        img_binary_file.write(self.criticalChunks.IHDR.ReturnData())
-        if exclude_ancillary is False:
-            img_binary_file.write(self.ancillaryChunks.return_chunk_data())
-        if self.criticalChunks.PLTE is not None:
-            img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
-        img_binary_file.write(self.criticalChunks.return_whole_IDAT())
-        img_binary_file.write(self.criticalChunks.IEND.ReturnData())
-        return img_binary_file
-    
-    def save_without_decompression(self, encrypted_data: np.array, padding_to_be_save_after_IEND:np.array = None):
-        logger.info("Saving encrypted Image data without decompression")
-        try:
-            signature = b'\x89PNG\r\n\x1a\n'
-            with open("../output_images/without_decompression.png",'wb') as output_file:
-                output_file.write(signature)
-                output_file.write(self.criticalChunks.IHDR.ReturnData())
-                if self.criticalChunks.PLTE is not None:
-                    output_file.write(self.criticalChunks.PLTE.ReturnData())
-                self.criticalChunks.IDAT = self.criticalChunks.create_IDAT_Chunk(encrypted_data)
-                output_file.write(self.criticalChunks.reconstruct_IDAT_data())
-                output_file.write(self.criticalChunks.IEND.ReturnData())
-                if padding_to_be_save_after_IEND is not None:
-                    custom_type = b'cnKS'  # Custom chunk type, 4 bytes, must be uppercase
-                    custom_data_bytes = padding_to_be_save_after_IEND  # Your custom data
-                    custom_length = struct.pack('>I', len(custom_data_bytes))  # Length of the data
-                    custom_crc = struct.pack('>I', zlib.crc32(custom_type + custom_data_bytes) & 0xffffffff)  # CRC
-                    chunk = Chunk(custom_length,custom_type,custom_data_bytes,custom_crc)
-                    output_file.write(chunk.ReturnData())
-        except Exception as e:
-            logger.error(f"Saving encrypted Image data without decompression FAILED")
-
-            
-            
-
     def displayChunks(self):
+        '''Function used for printing content of Critical and Ancillary chunk classes'''
         print(str(self.criticalChunks))
         print(str(self.ancillaryChunks))
 
     def displayImageData(self):
+        '''Function used for printing content of chunks present in PNG image'''
         logger.info("Displaying Image Data")
         self.criticalChunks.IHDR.DecodeData()
         self.ancillaryChunks.present_ancillary_chunk_data()
         self.displayChunks()
         if self.criticalChunks.PLTE is not None:
             self.criticalChunks.PLTE.show_palette()
-
-
-
-        
 
 
 chunk_bytes_parsing = {
@@ -350,14 +336,6 @@ chunk_bytes_parsing = {
     b'eXIf':eXIFChunk,
 }
 
-
-color_type_bytes = {
-    0:1,
-    2:3,
-    3:1,
-    4:2,
-    6:4
-}
 
 filtering_methods = {
     0:ReconstructingMethods.none,

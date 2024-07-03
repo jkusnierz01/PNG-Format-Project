@@ -1,22 +1,19 @@
-import PIL
 import argparse
 from pathlib import Path
 import matplotlib.pyplot as plt
-from chunksclasses import Image
-from fourier import createFourierPlots
-from encrypt import ECB
-from logger_setup import setup_color_logging
-import png
-import struct
-import zlib
+from e_media1.chunksclasses import Image
+from e_media1.fourier import createFourierPlots
+from e_media1.encrypt import ECB
+from e_media1.additional_data import *
+from e_media1.logger_setup import setup_color_logging
 import os
 
 parser = argparse.ArgumentParser(description="Process PNG File")
 parser.add_argument('path',help = 'Path to PNG file')
-parser.add_argument('-r','--removeAll', action='store_true', required=False, dest='remove_all',help="Remove all Ancillary Chunks from file")
+parser.add_argument('-d','--displayImageData', action='store_true', required=False, dest='display_data',help="Display Image Data stored in chunks")
+parser.add_argument('-r','--removeAnc', action='store_true', required=False, dest='remove_anc',help="Remove all Ancillary Chunks from file")
 parser.add_argument('-e', '--ecbencrypt', action='store_true',required=False,dest ='ECBencrypt',help="Encrypt Image with ECB algorithm")
 parser.add_argument('-c', '--cbcencrypt', action='store_true',required=False,dest ='CBCencrypt',help="Encrypt Image with CBC algorithm")
-parser.add_argument('-compressed', action='store_true', required=False, dest='encryptcompressed',help='Encrypt Compressed Image Data')
 args = parser.parse_args()
 
 
@@ -33,25 +30,25 @@ def main():
         img = plt.imread(args.path)
         grayscale_image = img[:, :, :3].mean(axis=2)
 
-        # tworzenie / upewnienie sie o istnieniu folderu do zapisu obrazow wyjsciowych
+        # creating directory for images
         save_path:str = os.path.dirname(os.path.abspath(__file__))+"/../output_images/"
         os.makedirs(save_path, exist_ok=True)
 
         with open(args.path,'r+b') as image_binary:
 
-            # sprawdzenie sygnatury
+            # signature validation
             signature = image_binary.read(8)
-            if signature == b'\x89PNG\r\n\x1a\n':
+            if signature == SIGNATURE:
                 image = Image(image_binary, save_path)
-                # image.displayImageData()
-                # createFourierPlots(grayscale_image)
+                if(args.display_data):
+                    image.displayImageData()
+                    createFourierPlots(grayscale_image)
                 if(args.ECBencrypt):
-                    image.encrypt_image_using_ecb(encrypt_compressed=args.encryptcompressed, library_func=True)
+                    image.encrypt_image_using_ecb(library_func=True)
                 if(args.CBCencrypt):
                     image.encrypt_image_using_cbc()
-                # zapisanie zdjecia koncowego - z usunietymi wszystkimi chunkami dodatkowymi lub z pozostawionymi 3
-                # with open(save_path+"/restored.png",'wb') as out_image:
-                #     out_image = image.restoreImage(out_image, signature, args.remove_all)
+                with open(save_path+"/restored.png",'wb') as out_image:
+                    out_image = image.recreate_png_with_chunks(out_image, args.remove_anc)
             else:
                 logger.error("Wrong file format!")
     else:

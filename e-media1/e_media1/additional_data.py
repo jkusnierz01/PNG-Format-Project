@@ -1,3 +1,7 @@
+
+SIGNATURE = b'\x89PNG\r\n\x1a\n'
+ 
+
 EXIF_TAGS = {
     270: ['ImageDescription', 'string'],
     271: ['Make', 'string'],
@@ -53,4 +57,13 @@ data_format_bytes = {
     10: 8, # signed rational
     11: 4, # single float
     12: 8  # double float
+}
+
+
+color_type_bytes = {
+    0:1,
+    2:3,
+    3:1,
+    4:2,
+    6:4
 }
