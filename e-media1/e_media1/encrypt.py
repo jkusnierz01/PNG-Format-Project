@@ -6,13 +6,14 @@ from dataclasses import dataclass,field
 import logging
 import random
 from typing import Tuple, List
+from abc import ABC,abstractmethod
 
 
 logger = logging.getLogger("loger")
 
 
 @dataclass
-class RSA:
+class RSA(ABC):
     '''Base class for CBC and ECB encryption with RSA algorithm'''
     public_key: bytes = None
     private_key: bytes = None
@@ -146,6 +147,15 @@ class RSA:
             logger.error(f"Error converting private key to cryptography format: {e}")
             return None
 
+    @abstractmethod
+    def encrypt(self, image_raw_data: np.array):
+        pass
+    
+
+    @abstractmethod
+    def decrypt(self, encrypted: np.array, hidden_data: np.array):
+        pass
+
 
     def split_data(self,full_data: np.array, length_of_data_block: int = None) -> np.array:
         '''
@@ -187,7 +197,7 @@ class RSA:
             return np.array(data_blocks,dtype=np.uint8)
         except Exception as e:
             logger.error(f"Error - splitting data: {e}")
-            return None, None
+            raise ValueError("Data splitting failed during ECB encryption")
 
 @dataclass
 class ECB(RSA):
@@ -199,7 +209,7 @@ class ECB(RSA):
         '''
         return super().__post_init__()
     
-    def encrypt(self,image_raw_data:np.array) -> Tuple(np.array, List, List):
+    def encrypt(self,image_raw_data:np.array) -> Tuple[np.array, List, List]:
         '''
         ECB encryption algoritm splits data into blocks of size 255 bytes. Each block is encrypted by RSA private key and as result we get block of 256 bytes.
         We take 255 bytes to keep original shape and remaining bytes are stored in auxiliary variable "padded"
@@ -216,25 +226,27 @@ class ECB(RSA):
         try:
             e, n = self.public_key
             data_splitted_blocks = self.split_data(image_raw_data,self.encrypt_max_block_size)
-            if image_raw_data.ndim != 3:
-                length = image_raw_data.shape[0]
-            else:
-                length = self.image_shape[0] * self.image_shape[1] * self.image_shape[2]
+
+            length = self.image_shape[0] * self.image_shape[1] * self.image_shape[2]
             encrypted_data = bytearray()
+
             for i in range(len(data_splitted_blocks)):
                 data = data_splitted_blocks[i].tobytes()
                 integer = int.from_bytes(data,'big')
                 decrypted_integer = pow(integer, e, n)
                 encrypted_data.extend(decrypted_integer.to_bytes(self.decrypt_max_block_size,'big'))
+
             int_table = np.frombuffer(encrypted_data,dtype=np.uint8)
             encrypted = int_table[:length]
             padded = int_table[length:]
-            return np.array(encrypted).reshape(self.image_shape),padded,int_table
+            return np.array(encrypted).reshape(self.image_shape),padded
         except Exception as e:
             logger.error(f"ECB encryption failed: {e}")
+            raise
+
 
         
-    def decrypt(self,encrypted:np.array):    
+    def decrypt(self,encrypted:np.array, hidden_data: np.array) -> np.array:    
         '''
         ECB decryption algorithm works the same as encryption mechanism but it makes use of RSA public key to decode data. Block of data also conatins 256 bytes.
         It is needed to get 255 bytes which is reverse to encryption mechanism.
@@ -246,8 +258,11 @@ class ECB(RSA):
         '''
         logger.info("Startin ECB decryption...")
         try:
+            full_encrypted = np.concatenate((encrypted.flatten(),hidden_data),axis=None)
             d, n = self.private_key
-            data_splitted_blocks= self.split_data(encrypted,self.decrypt_max_block_size)
+            data_splitted_blocks= self.split_data(full_encrypted,self.decrypt_max_block_size)
+
+
             original_data = bytearray()
             for i in range(len(data_splitted_blocks)):
                 data = data_splitted_blocks[i].tobytes()
@@ -257,12 +272,14 @@ class ECB(RSA):
             int_table = np.frombuffer(original_data,dtype=np.uint8)
             original = int_table[:-self.added_bytes]
             image_original_data = original.reshape(self.image_shape)
+            logger.info("ECB Decryption Succesful")
             return image_original_data
         except Exception as e:
             logger.error(f"ECB decryption failed: {e}")
+            raise
 
-    
-    def encrypt_with_library(self, image_raw_data: np.array) -> Tuple():
+
+    def encrypt_with_library(self, image_raw_data: np.array) -> Tuple:
         """
         Encrypt data using RSA keys and `cryptography` library.
 
@@ -273,40 +290,44 @@ class ECB(RSA):
             * arr -> List: array with encrypted image data
             * shape -> Tuple: shape of original image
         """
-        height, width, bpp = self.image_shape
-        data = image_raw_data.tobytes()
-        chunk_size = 190  # This allows room for padding
+        try:
+            height, width, bpp = self.image_shape
+            data = image_raw_data.tobytes()
+            chunk_size = 190  # This allows room for padding
 
-        public_key = self.get_public_key_cryptography()
-        if public_key is None:
-            raise ValueError("Public key not available for encryption")
+            public_key = self.get_public_key_cryptography()
+            if public_key is None:
+                raise ValueError("Public key not available for encryption")
 
-        encrypted_data = bytearray()
-        for i in range(0, len(data), chunk_size):
-            chunk = data[i:i + chunk_size]
-            encrypted_chunk = public_key.encrypt(
-                chunk,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
+            encrypted_data = bytearray()
+            for i in range(0, len(data), chunk_size):
+                chunk = data[i:i + chunk_size]
+                encrypted_chunk = public_key.encrypt(
+                    chunk,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
                 )
-            )
-            encrypted_data.extend(encrypted_chunk)
-        
-        bytes_data = bytes(encrypted_data)
-        int_data = np.frombuffer(bytes_data, dtype=np.uint8)
-        total_pixels = len(int_data) // bpp
+                encrypted_data.extend(encrypted_chunk)
+            
+            bytes_data = bytes(encrypted_data)
+            int_data = np.frombuffer(bytes_data, dtype=np.uint8)
+            total_pixels = len(int_data) // bpp
 
-        new_height = int(np.sqrt(total_pixels))
-        new_width = new_height
-        size = new_height * new_width * bpp
-        final_data = int_data[:size]
+            new_height = int(np.sqrt(total_pixels))
+            new_width = new_height
+            size = new_height * new_width * bpp
+            final_data = int_data[:size]
 
-        
-        shape = (new_height, new_width, bpp)
-        arr = final_data.reshape(shape)
-        return arr, shape
+            
+            shape = (new_height, new_width, bpp)
+            arr = final_data.reshape(shape)
+            return arr
+        except Exception as e:
+            logger.error(f"ECB encryption with library failed: {e}")
+            raise
 
 
 
@@ -317,10 +338,10 @@ class CBC(RSA):
         """
         Generate RSA key-pairs with super function.
         """
-        self.base_iv = iv = np.random.randint(0,256,self.encrypt_max_block_size,dtype=np.uint8) 
+        self.base_iv = np.random.randint(0,256,self.encrypt_max_block_size,dtype=np.uint8) 
         return super().__post_init__()
     
-    def encrypt(self,image_raw_data:np.array):
+    def encrypt(self,image_raw_data:np.array) -> Tuple[np.array, List, List]:
         '''
         CBC encryption algoritm splits data into blocks of size 255 bytes. 
         CBC algorithm uses addidional Vector (which at first is generated but later previous encoded block of data is used).
@@ -338,8 +359,8 @@ class CBC(RSA):
         logger.info("Starting CBC encryption...")
         try:
             e, n = self.public_key
-            data_splitted_blocks,shape = self.split_data(image_raw_data,self.encrypt_max_block_size)
-            length = shape[0] * shape[1] * shape[2]
+            data_splitted_blocks = self.split_data(image_raw_data,self.encrypt_max_block_size)
+            length = self.image_shape[0] * self.image_shape[1] * self.image_shape[2]
             encrypted_data = bytearray()
             iv = self.base_iv
             for i in range(len(data_splitted_blocks)):
@@ -347,18 +368,19 @@ class CBC(RSA):
                 data = XORed_data.tobytes()
                 integer = int.from_bytes(data,'big')
                 encrypted_integer = pow(integer, e, n)
-                encrypted_bytes = encrypted_integer.to_bytes(256,'big')
+                encrypted_bytes = encrypted_integer.to_bytes(self.decrypt_max_block_size,'big')
                 encrypted_data.extend(encrypted_bytes)
                 iv = np.frombuffer(encrypted_bytes[:self.encrypt_max_block_size],dtype=np.uint8)
             int_table = np.frombuffer(encrypted_data,dtype=np.uint8)
             encrypted = int_table[:length]
             padded = int_table[length:]
-            return np.array(encrypted).reshape(shape),padded,int_table
+            return np.array(encrypted).reshape(self.image_shape),padded
         except Exception as e:
             logger.error(f"CBC encryption failed: {e}")
+            raise
 
 
-    def decrypt(self, encrypted:np.array):
+    def decrypt(self, encrypted:np.array,hidden_data:np.array) -> np.array:
         '''
         CBC decryption algorithm uses reverse operations in comparistion to encryption mechanism. It makes use of RSA public key to decode data.
         Block of data contains 256 bytes.
@@ -371,8 +393,9 @@ class CBC(RSA):
         '''
         logger.info("Startin CBC decryption...")
         try:
+            full_encrypted = np.concatenate((encrypted.flatten(),hidden_data),axis=None)
             d, n = self.private_key
-            data_splitted_blocks, shape = self.split_data(encrypted,self.decrypt_max_block_size)
+            data_splitted_blocks = self.split_data(full_encrypted,self.decrypt_max_block_size)
             original_data = bytearray()
             iv = self.base_iv
             for i in range(len(data_splitted_blocks)):
@@ -389,4 +412,5 @@ class CBC(RSA):
             image_original_data = original.reshape((self.image_shape))
             return image_original_data
         except Exception as e:
-            logger.error(f"ECB decryption failed: {e}")
+            logger.error(f"CBC decryption failed: {e}")
+            raise

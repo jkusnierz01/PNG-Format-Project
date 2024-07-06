@@ -1,10 +1,6 @@
-import zlib
-from dataclasses import dataclass
-from typing import List
-from e_media1.basechunks import IDATChunk, IHDRChunk
-from io import BytesIO
 import logging
 import math
+import numpy as np
 
 logger = logging.getLogger("loger")
 
@@ -189,6 +185,32 @@ class ReconstructingMethods:
         else:
             Pr = c
         return Pr
+
+
+class FilteringMethods:
+
+
+    @staticmethod
+    def NoneFilter(encrypted_data:np.array):
+
+        try:  
+            height, width, _ = encrypted_data.shape
+            filtered_data = bytearray()
+
+            # PNG filter type 0 (None)
+            for row in range(height):
+                filtered_data.append(0)  # Filter type byte
+                filtered_data.extend(encrypted_data[row].flatten().tobytes())
+
+            return filtered_data
+        except Exception as e:
+            logger.error(f"Applying None Filter Failed: {e}")
+            return None
+        
+
+
+
+
 
 
 

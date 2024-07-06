@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import List
 import logging
 from e_media1.basechunks import *
-from e_media1.filtering_methods import ReconstructingMethods
+from e_media1.filtering_methods import ReconstructingMethods,FilteringMethods
 from e_media1.encrypt import ECB, CBC
 from e_media1.additional_data import *
 import numpy as np
@@ -40,7 +40,7 @@ class CriticalChunks:
         '''
         IDAT_data = bytearray()
         for chunk in self.IDAT:
-            IDAT_data.extend(chunk.ReturnData())
+            IDAT_data.extend(chunk.get_all_chunk_bytes())
         return bytes(IDAT_data)
     
 
@@ -142,7 +142,7 @@ class AncillaryChunks:
         '''
         chunkData = bytearray()
         for chunk in self.ChunkList:
-            chunkData.extend(chunk.ReturnData())
+            chunkData.extend(chunk.get_all_chunk_bytes())
         return bytes(chunkData)
 
     
@@ -166,40 +166,59 @@ class Image:
     ancillaryChunks: AncillaryChunks
     rawIDATData: np.array
     path_to_save: str
+    hidden_chunk: Chunk
 
     def __init__(self, image_binary_data, save_path: str):
+        self.path_to_save = save_path
+        _critical,_ancillary,hidden_chunk = self.read_image_binary_data(image_binary_data)
+        self.criticalChunks = CriticalChunks(_critical)
+        self.ancillaryChunks = AncillaryChunks(_ancillary)
+        self.hidden_chunk = hidden_chunk
+        self.rawIDATData = self.criticalChunks.reconstruct_IDAT_data()
+
+    @staticmethod
+    def read_image_binary_data(image_binary_data):
         CriticalChunkList = []
         AncillaryChunkList = []
-        self.path_to_save = save_path
+        # signature validation
+        signature = image_binary_data.read(8)
+        if signature == SIGNATURE:
+            while image_binary_data:
+                try:
+                    # odczytujemy dane z chunka
+                    _length = image_binary_data.read(4)
+                    _type = image_binary_data.read(4)
+                    _data = image_binary_data.read(int.from_bytes(_length))
+                    _crc = image_binary_data.read(4)
 
-        while image_binary_data:
+                    # jezeli typu nie ma w slowniku inicjowana jest klasa bazowa
+                    chunk_class = chunk_bytes_parsing.get(_type,Chunk)
+                    chunk = chunk_class(_length,_type,_data,_crc)
+                    #checking if chunk is critical (uppercase:critical | lowercase:ancillary)
+                    first_byte = _type[0:1]
+                    letter = first_byte.decode() 
+                    if letter.isupper():
+                        CriticalChunkList.append(chunk)
+                    else:
+                        if chunk.Type in chunk_bytes_parsing.keys():
+                            AncillaryChunkList.append(chunk)
+                except Exception as e:
+                    logger.error(f"Error during loading chunk {e}")
+                    continue
+                if chunk.Type == b'IEND':
+                    break
             try:
-                # odczytujemy dane z chunka
                 _length = image_binary_data.read(4)
                 _type = image_binary_data.read(4)
                 _data = image_binary_data.read(int.from_bytes(_length))
-                _crc = image_binary_data.read(4)
+                _crc = image_binary_data.read(4)  
+                hidden_chunk = Chunk(_length,_type,_data,_crc)
+            except:
+                hidden_chunk = None
+            return CriticalChunkList, AncillaryChunkList, hidden_chunk
+        else:
+            raise ValueError("Wrong File Format!")
 
-                # jezeli typu nie ma w slowniku inicjowana jest klasa bazowa
-                chunk_class = chunk_bytes_parsing.get(_type,Chunk)
-                chunk = chunk_class(_length,_type,_data,_crc)
-                #checking if chunk is critical (uppercase:critical | lowercase:ancillary)
-                first_byte = _type[0:1]
-                letter = first_byte.decode() 
-                if letter.isupper():
-                    CriticalChunkList.append(chunk)
-                else:
-                    if chunk.Type in chunk_bytes_parsing.keys():
-                        AncillaryChunkList.append(chunk)
-            except Exception as e:
-                logger.error(f"Error during loading chunk {e}")
-                continue
-            if chunk.Type == b'IEND':
-                break
-        
-        self.criticalChunks = CriticalChunks(CriticalChunkList)
-        self.ancillaryChunks = AncillaryChunks(AncillaryChunkList)
-        self.rawIDATData = self.criticalChunks.reconstruct_IDAT_data()
 
     def recreate_png_with_chunks(self, img_binary_file:bytes, exclude_ancillary:bool) -> bytes:
         '''
@@ -214,18 +233,18 @@ class Image:
         '''
         
         img_binary_file.write(SIGNATURE)
-        img_binary_file.write(self.criticalChunks.IHDR.ReturnData())
+        img_binary_file.write(self.criticalChunks.IHDR.get_all_chunk_bytes())
         if exclude_ancillary is False:
             img_binary_file.write(self.ancillaryChunks.return_chunk_data())
         if self.criticalChunks.PLTE is not None:
-            img_binary_file.write(self.criticalChunks.PLTE.ReturnData())
+            img_binary_file.write(self.criticalChunks.PLTE.get_all_chunk_bytes())
         img_binary_file.write(self.criticalChunks.return_whole_IDAT())
-        img_binary_file.write(self.criticalChunks.IEND.ReturnData())
+        img_binary_file.write(self.criticalChunks.IEND.get_all_chunk_bytes())
         return img_binary_file
 
 
 
-    def saveImage(self,path:str, filename:str,data:np.array) -> None:
+    def save_images_with_png_library(self,path:str, filename:str,data:np.array) -> None:
         '''
         Saving Image with encrypted data using external library png
 
@@ -268,7 +287,7 @@ class Image:
         
     
 
-    def encrypt_image_using_ecb(self, library_func:bool = False) -> None:
+    def encrypt_and_decrypt_image_using_ecb(self, library_func:bool = False) -> None:
         '''
         Encrypt image data with ECB algorithm
 
@@ -279,19 +298,33 @@ class Image:
         Return:
             *None
         '''
+        encrypted_filename = "ecb_encrypt.png"
+        decrypted_filename = "ecb_decrypt.png"
+        path = Path(self.path_to_save + encrypted_filename)
+
         try:
             ecb = ECB(image_shape=self.rawIDATData.shape)
-            encrypted, _, int_t = ecb.encrypt(self.rawIDATData)
-            self.saveImage(self.path_to_save, filename='ecb_encrypt.png',data=encrypted)
-            decrypted = ecb.decrypt(int_t)
-            self.saveImage(self.path_to_save, filename='ecb_decrypt.png',data=decrypted)
-            if library_func:
-                encrypted,shape = ecb.encrypt_with_library(self.rawIDATData)
-                self.saveImage(self.path_to_save, filename='ecb_encrypt_library.png',data=encrypted)
-        except Exception as e:
-            logger.error(f"Error in encrypt_image_using_ecb function: {e}")
+            encrypted, padded_data = ecb.encrypt(self.rawIDATData)
+            
+            self.save_image_by_chunks(encrypted_filename, encrypted,padded_data)
 
-    def encrypt_image_using_cbc(self):
+            if library_func:
+                encrypted = ecb.encrypt_with_library(self.rawIDATData)
+                self.save_images_with_png_library(self.path_to_save, filename='ecb_encrypt_library.png',data=encrypted)
+        except Exception as e:
+            logger.error(f"Error with ECB encryption in encrypt_image_using_ecb function: {e}")
+        try:
+            if os.path.exists(path):
+                with open(path,'r+b') as encrypted_binary_img:
+                    image = Image(encrypted_binary_img, self.path_to_save)
+                if image.hidden_chunk is not None:
+                        int_hidden_chunk_data = np.frombuffer(image.hidden_chunk.get_chunk_data_bytes(),dtype=np.uint8)
+                decrypted = ecb.decrypt(image.rawIDATData, int_hidden_chunk_data)
+                self.save_image_by_chunks(decrypted_filename,decrypted)
+        except Exception as e:
+            logger.error(f"Error with ECB decryption in encrypt_image_using_ecb function: {e}")
+
+    def encrypt_and_decrypt_image_using_cbc(self):
         '''
         Encrypt image data with CBC algorithm
 
@@ -301,14 +334,65 @@ class Image:
         Return:
             *None
         '''
+        encrypted_filename = "cbc_encrypt.png"
+        decrypted_filename = "cbc_decrypt.png"
+        path = Path(self.path_to_save + encrypted_filename)
         try:
-            cbc = CBC()
-            encrypted,_,int_data = cbc.encrypt(self.rawIDATData)
-            self.saveImage(self.path_to_save, filename='cbc_encrypt.png', data=encrypted)
-            decrypted = cbc.decrypt(int_data)
-            self.saveImage(self.path_to_save, filename='cbc_decrypt.png', data=decrypted)
+            cbc = CBC(image_shape=self.rawIDATData.shape)
+            encrypted,padded = cbc.encrypt(self.rawIDATData)
+            self.save_image_by_chunks(encrypted_filename, encrypted, padded)
         except Exception as e:
-            logger.error(f"Error in encrypt_image_using_cbc function: {e}")
+            logger.error(f"Error with CBC encryption in encrypt_image_using_cbc function: {e}")
+        try:
+            with open(path,'r+b') as encrypted_binary_img:
+                image = Image(encrypted_binary_img, self.path_to_save)
+            if image.hidden_chunk is not None:
+                int_hidden_chunk_data = np.frombuffer(image.hidden_chunk.get_chunk_data_bytes(),dtype=np.uint8)
+            decrypted = cbc.decrypt(image.rawIDATData,int_hidden_chunk_data)
+            self.save_image_by_chunks(decrypted_filename,decrypted)
+        except Exception as e:
+            logger.error(f"Error with CBC decryption in encrypt_image_using_cbc function: {e}")
+
+
+    def save_image_by_chunks(self, file_name:str, image_data: np.array, padding_to_be_save_after_IEND:np.array = None):
+        '''
+        Function to save data with 'raw' method, just by writting bytes to file with option to hide data after IEND chunk
+
+        Args:
+            *file_name (str): name of PNG file 
+            *image_data (np.array): data which is main contend of image
+            * padding_to_be_save_after_IEND (np.array): data to be hidden after IEND chunk
+        
+        Return:
+            *None
+        '''
+        logger.info(f"Saving image {file_name}")
+        try:
+            with open(f"{self.path_to_save}/{file_name}",'wb') as output_file:
+
+                #writing signature and IHDR chunk
+                output_file.write(SIGNATURE)
+                output_file.write(self.criticalChunks.IHDR.get_all_chunk_bytes())
+                if self.criticalChunks.PLTE is not None:
+                    output_file.write(self.criticalChunks.PLTE.get_all_chunk_bytes())
+
+                compressed_data  = zlib.compress(FilteringMethods.NoneFilter(image_data))
+                self.criticalChunks.IDAT = self.criticalChunks.create_IDAT_Chunk(compressed_data)
+                output_file.write(self.criticalChunks.return_whole_IDAT())
+
+                output_file.write(self.criticalChunks.IEND.get_all_chunk_bytes())
+
+                if padding_to_be_save_after_IEND is not None:
+                    custom_type = b'cnKS'  # Custom chunk type, 4 bytes, must be uppercase
+                    padded_bytes = padding_to_be_save_after_IEND.flatten().tobytes()
+                    custom_length = struct.pack('>I', len(padding_to_be_save_after_IEND))  # Length of the data
+                    custom_crc = struct.pack('>I', zlib.crc32(custom_type + padded_bytes) & 0xffffffff)  # CRC
+                    chunk = Chunk(custom_length,custom_type,padded_bytes,custom_crc)
+                    output_file.write(chunk.get_all_chunk_bytes())
+
+        except Exception as e:
+            logger.error(f"Saving image failed: {e}")
+
 
 
     def displayChunks(self):

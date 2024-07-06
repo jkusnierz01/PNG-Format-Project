@@ -4,8 +4,8 @@ import logging
 import struct
 from tabulate import tabulate
 import pprint
+from typing import Tuple,Dict
 import matplotlib.pyplot as plt
-from typing import Tuple
 from e_media1.additional_data import EXIF_TAGS, data_format_bytes
 
 
@@ -15,7 +15,7 @@ logger = logging.getLogger("loger")
 
 
 @dataclass
-class Chunk:
+class Chunk():
     '''
     Klasa bazowa dla kazdego chunka w obrazie PNG
     '''
@@ -36,12 +36,14 @@ class Chunk:
 
 
 
-    def ReturnData(self) -> bytes:
+    def get_all_chunk_bytes(self) -> bytes:
         '''
         Returns all chunk data as sequence of bytes in required line-up
         '''
         return bytes(self.Lenght + self.Type + self.Data + self.CRC)
     
+    def get_chunk_data_bytes(self) -> bytes:
+        return bytes(self.Data)
     
 class IHDRChunk(Chunk):
     def __init__(self, lenght,type,data,crc):
@@ -128,7 +130,7 @@ class eXIFChunk(Chunk):
     def __init__(self, lenght, type, data, crc):
         super().__init__(lenght, type, data, crc)
 
-    def readEXIF(self) -> Tuple(dict,dict):
+    def readEXIF(self) -> Tuple[Dict,Dict]:
         '''
             Read eXIF data from all IFDs existing
 
@@ -171,7 +173,7 @@ class eXIFChunk(Chunk):
         return entries,sub_entries
 
     @staticmethod
-    def read_ifd(stream: io.BytesIO, offset: bytes, endian: str) -> Tuple(dict,int):
+    def read_ifd(stream: io.BytesIO, offset: bytes, endian: str) -> Tuple[Dict,int]:
             '''
             Read eXIF data from single IFD
 
