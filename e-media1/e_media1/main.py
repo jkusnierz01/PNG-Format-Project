@@ -35,22 +35,16 @@ def main():
         os.makedirs(save_path, exist_ok=True)
 
         with open(args.path,'r+b') as image_binary:
-
-            # signature validation
-            signature = image_binary.read(8)
-            if signature == SIGNATURE:
-                image = Image(image_binary, save_path)
-                if(args.display_data):
-                    image.displayImageData()
-                    createFourierPlots(grayscale_image)
-                if(args.ECBencrypt):
-                    image.encrypt_image_using_ecb(library_func=True)
-                if(args.CBCencrypt):
-                    image.encrypt_image_using_cbc()
-                with open(save_path+"/restored.png",'wb') as out_image:
-                    out_image = image.recreate_png_with_chunks(out_image, args.remove_anc)
-            else:
-                logger.error("Wrong file format!")
+            image = Image(image_binary, save_path)
+            if(args.display_data):
+                image.displayImageData()
+                createFourierPlots(grayscale_image)
+            if(args.ECBencrypt):
+                image.encrypt_and_decrypt_image_using_ecb(library_func=True)
+            if(args.CBCencrypt):
+                image.encrypt_and_decrypt_image_using_cbc()
+            with open(save_path+"/restored.png",'wb') as out_image:
+                out_image = image.recreate_png_with_chunks(out_image, args.remove_anc)
     else:
         logger.error(f"Invalid path to file! - {Path(args.path)}")
 
