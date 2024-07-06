@@ -30,6 +30,6 @@ Where the flags are:
 -r, --removeAnc : Remove all Ancillary Chunks from file
 -e, --ecbencrypt : Encrypt image using ECB encryption method
 -c, --cbcencrypt : Encrypt image using CBC encryption method
-
+```
 
 
