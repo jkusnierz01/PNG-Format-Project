@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Created project focus on analysys of PNG image format, it enables user to:
+Created project focus on analysis of PNG image format, it enables user to:
  - inspect image critical chunks data (IHDR, IDAT, IEND)),
  - inspect image ancillary chunks data (eXIF, PLTE, gAMA, cHRM),
  - encrypt/decrypt image with ECB algorithm with use of RSA key-pairs,
