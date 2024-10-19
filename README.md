@@ -15,7 +15,7 @@ poetry install
 ```
 and create environment:
 ```
-poetry install
+poetry shell
 ```
 
 
